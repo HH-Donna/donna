@@ -307,6 +307,7 @@ For each UNIQUE biller (company/person sending invoices), extract:
 <extraction_guide>
 <field name="full_name">Company official name, or "FirstName LastName from CompanyName" for individuals</field>
 <field name="email_address">Sender's email address (from From: field)</field>
+<field name="biller_phone_number">Biller's contact phone number (look in email footer/signature/attachments)</field>
 <field name="domain">Domain name only (e.g., "netflix.com", "uber.com")</field>
 <field name="profile_picture_url">Logo image URL from email (empty if none)</field>
 <field name="full_address">Complete physical address: street, city, postal code, country</field>
@@ -335,6 +336,7 @@ Return ONLY valid JSON array (no markdown, no explanation):
   {{
     "full_name": "Company Name Inc.",
     "email_address": "billing@company.com",
+    "biller_phone_number": "+1-800-123-4567",
     "domain": "company.com",
     "profile_picture_url": "https://logo.url",
     "full_address": "123 Main St, City, ZIP, Country",
@@ -399,6 +401,7 @@ Return ONLY valid JSON array (no markdown, no explanation):
                 biller = {
                     'full_name': biller_item.get('full_name', ''),
                     'email_address': biller_item.get('email_address', ''),
+                    'biller_phone_number': biller_item.get('biller_phone_number', ''),
                     'domain': domain,
                     'profile_picture_url': biller_item.get('profile_picture_url', ''),
                     'full_address': biller_item.get('full_address', ''),
@@ -518,6 +521,7 @@ Example:
         return {
             'full_name': full_name,
             'email_address': biller_email,
+            'biller_phone_number': '',
             'domain': domain,
             'profile_picture_url': '',
             'full_address': full_address,
@@ -571,6 +575,8 @@ Example:
                 # Merge data (prefer non-empty values)
                 if not existing['full_address'] and biller.get('full_address'):
                     existing['full_address'] = biller['full_address']
+                if not existing['biller_phone_number'] and biller.get('biller_phone_number'):
+                    existing['biller_phone_number'] = biller['biller_phone_number']
                 if not existing['payment_method'] and biller.get('payment_method'):
                     existing['payment_method'] = biller['payment_method']
                 if not existing['biller_billing_details'] and biller.get('biller_billing_details'):
@@ -605,6 +611,7 @@ Example:
                 biller_map[email_key] = {
                     'full_name': biller.get('full_name', ''),
                     'contact_emails': [biller.get('email_address', '')],  # Start with array
+                    'biller_phone_number': biller.get('biller_phone_number', ''),
                     'domain': domain,
                     'profile_picture_url': biller.get('profile_picture_url', ''),
                     'full_address': biller.get('full_address', ''),
@@ -655,6 +662,7 @@ Example:
             profile = BillerProfile(
                 full_name=data['full_name'],
                 contact_emails=data['contact_emails'],
+                biller_phone_number=data['biller_phone_number'],
                 domain=data['domain'],
                 profile_picture_url=data['profile_picture_url'],
                 full_address=data['full_address'],
