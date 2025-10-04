@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 import unicodedata
 import difflib
+import socket
 from typing import Dict, Any, List, Tuple, Optional
 
 # Optional imports for enhanced domain analysis
@@ -42,13 +43,29 @@ except Exception:
 # Domain similarity threshold for vendor matching
 VENDOR_MATCH_THRESHOLD = 0.85
 
-# Suspicious domain patterns
+# Enhanced domain analysis patterns
 SUSPICIOUS_DOMAIN_PATTERNS = [
     r"[0-9]",  # Contains numbers (potential homograph)
     r"[^a-zA-Z0-9.-]",  # Contains special characters
-    r"\.(tk|ml|ga|cf)$",  # Free domains often used for fraud
     r"^[0-9]",  # Starts with number
 ]
+
+# TLD classification for better fraud detection
+LEGITIMATE_TLDS = {
+    'com', 'org', 'net',           # Classic trusted
+    'edu', 'gov', 'mil',           # Institutional
+    'co.uk', 'de', 'fr', 'ca',     # Major countries
+    'au', 'jp', 'it', 'es',        # Other major countries
+    'io', 'ai', 'co',              # Tech companies
+    'us', 'uk', 'eu',              # Geographic
+}
+
+SUSPICIOUS_TLDS = {
+    'tk', 'ml', 'ga', 'cf',        # Free domains often used for fraud
+    'ru', 'cn',                    # Countries with high fraud rates
+    'info', 'biz', 'name',         # Often used for spam/scams
+    'cc', 'pro', 'mobi',           # Mixed reputation TLDs
+}
 
 # Bank account validation patterns
 BANK_ACCOUNT_PATTERNS = {
@@ -183,34 +200,59 @@ def analyze_domain_suspiciousness(domain: str) -> Dict[str, Any]:
     reasons = []
     confidence = 0.0
     
-    # Check for suspicious patterns
+    confidence_factors = []
+    
+    # 1. Basic pattern analysis
     for pattern in SUSPICIOUS_DOMAIN_PATTERNS:
         if re.search(pattern, domain):
             if pattern == r"[0-9]":
                 reasons.append("contains_numbers")
-                confidence += 0.3
+                confidence_factors.append(0.3)
             elif pattern == r"[^a-zA-Z0-9.-]":
                 reasons.append("contains_special_chars")
-                confidence += 0.4
-            elif pattern == r"\.(tk|ml|ga|cf)$":
-                reasons.append("suspicious_tld")
-                confidence += 0.5
+                confidence_factors.append(0.4)
             elif pattern == r"^[0-9]":
                 reasons.append("starts_with_number")
-                confidence += 0.4
+                confidence_factors.append(0.4)
     
-    # Check for very short domains (potential typosquatting)
+    # 2. Length analysis
     if len(domain) < 6:
         reasons.append("very_short_domain")
-        confidence += 0.2
+        confidence_factors.append(0.2)
+    elif len(domain) > 50:
+        reasons.append("very_long_domain")
+        confidence_factors.append(0.3)
     
-    # Check for excessive subdomains
+    # 3. Subdomain analysis
     subdomain_count = domain.count('.')
     if subdomain_count > 3:
         reasons.append("excessive_subdomains")
-        confidence += 0.3
+        confidence_factors.append(0.3)
     
-    # Check for homograph-like patterns (mixed scripts)
+    # 4. TLD analysis (enhanced)
+    tld = domain.split('.')[-1].lower()
+    
+    # Check for country-specific TLDs (e.g., co.uk)
+    if subdomain_count >= 2:
+        country_tld = '.'.join(domain.split('.')[-2:])
+        if country_tld in LEGITIMATE_TLDS:
+            confidence_factors.append(-0.2)  # Reduce suspicion
+        elif country_tld in SUSPICIOUS_TLDS:
+            reasons.append("suspicious_tld")
+            confidence_factors.append(0.5)
+    else:
+        if tld in LEGITIMATE_TLDS:
+            confidence_factors.append(-0.2)  # Reduce suspicion
+        elif tld in SUSPICIOUS_TLDS:
+            reasons.append("suspicious_tld")
+            confidence_factors.append(0.5)
+    
+    # 5. Character pattern analysis
+    if re.search(r'(.)\1{2,}', domain):  # Repeated characters
+        reasons.append("repeated_chars")
+        confidence_factors.append(0.2)
+    
+    # 6. Mixed scripts detection (homograph attacks)
     has_mixed_scripts = False
     for char in domain:
         if ord(char) > 127:  # Non-ASCII character
@@ -219,13 +261,25 @@ def analyze_domain_suspiciousness(domain: str) -> Dict[str, Any]:
     
     if has_mixed_scripts:
         reasons.append("mixed_scripts")
-        confidence += 0.6
+        confidence_factors.append(0.6)
     
-    # Normalize confidence to [0, 1]
-    confidence = min(1.0, confidence)
+    # 7. DNS resolution test (simple)
+    try:
+        socket.gethostbyname(domain)
+        confidence_factors.append(-0.1)  # Resolves = slightly more legitimate
+    except socket.gaierror:
+        reasons.append("dns_resolution_failed")
+        confidence_factors.append(0.4)
+    
+    # Calculate final confidence score
+    if confidence_factors:
+        final_score = sum(confidence_factors) / len(confidence_factors)
+        confidence = max(0.0, min(1.0, abs(final_score)))
+    else:
+        confidence = 0.5
     
     return {
-        "is_suspicious": len(reasons) > 0,
+        "is_suspicious": len(reasons) > 0 or confidence > 0.3,
         "reasons": reasons,
         "confidence": confidence
     }
