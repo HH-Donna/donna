@@ -320,12 +320,12 @@ def check_billing_email_legitimacy(gmail_msg: Dict[str, Any]) -> Dict[str, Any]:
             "parsed_data": parse_gmail_message(gmail_msg)
         }
     
-    # If it's a receipt, skip domain analysis (receipts are usually safe)
+    # If it's a receipt, skip domain analysis (receipts are just confirmations)
     if gemini_result["email_type"] == "receipt":
         return {
             "is_billing": True,
             "email_type": "receipt",
-            "is_legitimate": True,  # Receipts are generally safe
+            "is_legitimate": None,  # Skip analysis for receipts
             "domain_analysis": None,
             "confidence": gemini_result["confidence"],
             "reasons": [],
