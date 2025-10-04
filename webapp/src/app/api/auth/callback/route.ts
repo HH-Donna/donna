@@ -21,10 +21,22 @@ export async function GET(request: Request) {
       const providerToken = session.provider_token
       const providerRefreshToken = session.provider_refresh_token
       
-      const scopes = session.provider_token ? ['https://mail.google.com/', 'https://www.googleapis.com/auth/gmail.labels'] : []
+      const expiresIn = session.expires_in || 3600 
+      
+      const scopes = session.provider_token ? [
+        'https://mail.google.com/', 
+        'https://www.googleapis.com/auth/gmail.labels',
+        'https://www.googleapis.com/auth/contacts.readonly'
+      ] : []
       
       if (providerToken && user.id) {
         try {
+          console.log('Storing OAuth tokens:', {
+            has_refresh_token: !!providerRefreshToken,
+            expires_in: expiresIn,
+            scopes: scopes.length
+          })
+          
           const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/oauth/store`, {
             method: 'POST',
             headers: {
@@ -37,7 +49,7 @@ export async function GET(request: Request) {
               access_token: providerToken,
               refresh_token: providerRefreshToken || '',
               scopes: scopes,
-              expires_in: 3600 
+              expires_in: expiresIn // Use actual expiry from Google
             })
           })
           

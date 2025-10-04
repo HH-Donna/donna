@@ -30,11 +30,22 @@ import base64
 import re
 import json
 import hashlib
+import os
 from typing import Dict, Any, List, Tuple, Optional
 from email import policy
 from email.parser import BytesParser
 import unicodedata
 import difflib
+
+# ML model imports
+try:
+    import joblib
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.linear_model import LogisticRegression
+except ImportError:
+    joblib = None
+    TfidfVectorizer = None
+    LogisticRegression = None
 
 # Optional imports that you can enable in your environment
 try:
@@ -99,6 +110,60 @@ IBAN_RE = re.compile(r"\b([A-Z]{2}\d{2}[A-Z0-9]{1,30})\b")
 BANK_ACCOUNT_RE = re.compile(r"\b(account(?:\s*no| number)?[:\s]*)(\d{4,})\b", flags=re.I)
 # Pattern to match various date formats (numeric and text-based)
 DATE_RE = re.compile(r"\b(\d{2,4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{2,4})\b", flags=re.I)
+
+# =============================================================================
+# ML MODEL LOADING
+# =============================================================================
+#
+# Load trained models for email-level fraud detection at module initialization.
+# These models are used to replace heuristic-based scoring with ML-based scoring.
+#
+# Models:
+# - tfidf_vectorizer: TF-IDF vectorizer for text preprocessing
+# - logistic_phish_model: Logistic regression model for phishing detection
+#
+# Note: Models are loaded once at module import time for efficiency.
+# -------------------------
+
+# Global variables to store loaded models
+_tfidf_vectorizer = None
+_logistic_phish_model = None
+
+def _load_ml_models():
+    """
+    Load ML models for email fraud detection.
+    
+    Attempts to load the TF-IDF vectorizer and logistic regression model
+    from joblib files. If models are not available or loading fails,
+    falls back to None values.
+    """
+    global _tfidf_vectorizer, _logistic_phish_model
+    
+    if not joblib:
+        return  # ML libraries not available
+    
+    try:
+        # Get the directory where this module is located
+        module_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Load TF-IDF vectorizer
+        vectorizer_path = os.path.join(module_dir, "tfidf_vectorizer.joblib")
+        if os.path.exists(vectorizer_path):
+            _tfidf_vectorizer = joblib.load(vectorizer_path)
+        
+        # Load logistic regression model
+        model_path = os.path.join(module_dir, "logistic_phish_model.joblib")
+        if os.path.exists(model_path):
+            _logistic_phish_model = joblib.load(model_path)
+            
+    except Exception as e:
+        # Log error but don't fail module loading
+        print(f"Warning: Could not load ML models: {e}")
+        _tfidf_vectorizer = None
+        _logistic_phish_model = None
+
+# Load models at module initialization
+_load_ml_models()
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -728,22 +793,19 @@ def ocr_bytes_attachment(data_bytes: bytes) -> str:
 # -------------------------
 def score_email_model(features: Dict[str, Any]) -> Tuple[float, Dict[str, float]]:
     """
-    Score email-level fraud indicators using heuristic rules.
+    Score email-level fraud indicators using trained logistic regression model.
     
-    Evaluates email content and metadata for fraud indicators such as urgency
-    language, suspicious links, and authentication failures. This function
-    implements a rule-based scoring system that can be easily understood
-    and tuned.
+    Uses a trained logistic regression model to predict phishing probability
+    based on email subject and body text. Authentication results (SPF/DKIM)
+    are applied as minor adjustments to the ML model output.
     
     Args:
         features (Dict[str, Any]): Email features dictionary containing:
-            - has_invoice_keyword: Boolean indicating invoice keywords present
-            - urgency_flag: Boolean indicating urgent language
-            - links_count: Number of HTTP/HTTPS links in email
+            - subject: Email subject line
+            - body: Email body text (optional, defaults to empty string)
             - spf: SPF authentication result ('pass', 'fail', etc.)
             - dkim: DKIM authentication result
-            - dmarc: DMARC authentication result
-            - subject: Email subject line
+            - dmarc: DMARC authentication result (not used in scoring)
             
     Returns:
         Tuple[float, Dict[str, float]]: 
@@ -751,60 +813,70 @@ def score_email_model(features: Dict[str, Any]) -> Tuple[float, Dict[str, float]
             - Contributions dictionary showing feature impact
     
     Scoring Logic:
-        - Base score: 0.2
-        - Invoice keywords: +0.25
-        - Urgency language: +0.12
-        - Links: +0.02 per link (max 0.08)
-        - SPF pass: -0.05, fail: +0.2
+        - Primary: Logistic regression probability from trained model
+        - SPF pass: -0.05, fail/softfail: +0.20
         - DKIM pass: -0.05, fail: +0.18
+        - Score clamped to [0, 1] range
     
     Example:
         >>> features = {
-        ...     'has_invoice_keyword': True,
-        ...     'urgency_flag': True,
-        ...     'links_count': 2,
+        ...     'subject': 'Urgent: Verify your account',
+        ...     'body': 'Click here to verify your account immediately',
         ...     'spf': 'fail',
         ...     'dkim': 'pass'
         ... }
         >>> score, contrib = score_email_model(features)
         >>> print(f"Score: {score:.2f}")
-        Score: 0.67
+        Score: 0.75
     """
-    # Example features expected:
-    # features: { 'has_invoice_keyword':bool, 'subject_similarity_to_invoice':float, 'urgency_flag':bool, 'links_count':int, 'spf_pass':bool, ... }
-    score = 0.0
     contributions = {}
-    # base
-    score += 0.2
-    contributions["base"] = 0.2
-    if features.get("has_invoice_keyword"):
-        score += 0.25
-        contributions["invoice_keyword"] = 0.25
-    if features.get("urgency_flag"):
-        score += 0.12
-        contributions["urgency_flag"] = 0.12
-    links = features.get("links_count", 0) or 0
-    if links > 0:
-        link_contrib = min(0.08, 0.02 * links)
-        score += link_contrib
-        contributions["links_count"] = link_contrib
-    # SPF/DKIM negative impacts
-    spf = features.get("spf")  # 'pass'|'fail'|None
+    
+    # Get email text for ML model
+    subject = features.get("subject", "")
+    body = features.get("body", "")
+    email_text = f"{subject} {body}".strip()
+    
+    # Get ML model prediction
+    lr_probability = 0.5  # Default neutral probability
+    
+    if _tfidf_vectorizer and _logistic_phish_model and email_text:
+        try:
+            # Transform text using TF-IDF vectorizer
+            text_vector = _tfidf_vectorizer.transform([email_text])
+            
+            # Get probability of phishing (class 1)
+            lr_probability = _logistic_phish_model.predict_proba(text_vector)[0, 1]
+            
+        except Exception as e:
+            # If ML prediction fails, use neutral probability
+            print(f"Warning: ML model prediction failed: {e}")
+            lr_probability = 0.5
+    
+    # Start with ML model probability as base score
+    score = lr_probability
+    contributions["logistic_regression"] = lr_probability
+    
+    # Apply SPF/DKIM adjustments as minor add-ons
+    spf = features.get("spf")
     dkim = features.get("dkim")
+    
     if spf == "pass":
         score -= 0.05
         contributions["spf_pass"] = -0.05
     elif spf in ("fail", "softfail"):
-        score += 0.2
-        contributions["spf_fail"] = 0.2
+        score += 0.20
+        contributions["spf_fail"] = 0.20
+        
     if dkim == "pass":
         score -= 0.05
         contributions["dkim_pass"] = -0.05
     elif dkim == "fail":
         score += 0.18
         contributions["dkim_fail"] = 0.18
-    # normalize to 0..1
+    
+    # Clamp score to [0, 1] range
     score = max(0.0, min(1.0, score))
+    
     return score, contributions
 
 
@@ -1102,15 +1174,13 @@ def process_email_message(gmail_msg: Dict[str, Any], vendor_master: Optional[Dic
             "inline_data": a.get("data_bytes") is not None,
         })
 
-    # quick feature engineering for email model
+    # email-level feature engineering for ML model
     email_features = {
-        "has_invoice_keyword": bool(INVOICE_KEYWORDS.search(subject) or INVOICE_KEYWORDS.search(full_text)),
-        "urgency_flag": bool(re.search(r"\b(immediate|urgent|asap|pay now|due immediately)\b", full_text, flags=re.I)),
-        "links_count": len(re.findall(r"https?://", full_text)),
+        "subject": subject,
+        "body": full_text,
         "spf": auth.get("spf"),
         "dkim": auth.get("dkim"),
         "dmarc": auth.get("dmarc"),
-        "subject": subject,
     }
     email_score, email_contrib = score_email_model(email_features)
 

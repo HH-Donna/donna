@@ -32,7 +32,7 @@ async def get_user_oauth_token(user_uuid: str, provider: str = 'google'):
         
         token_data = response.data[0]
         access_token = token_data.get('access_token')
-        refresh_token = token_data.get('refresh_token')
+        refresh_token = token_data.get('refresh_token') or ''  # Ensure it's a string, not None
         scopes = token_data.get('scopes', [])
         
         if not access_token:
@@ -70,30 +70,60 @@ async def get_user_oauth_token(user_uuid: str, provider: str = 'google'):
         )
 
 
-async def store_user_oauth_token(user_uuid: str, provider: str, access_token: str, 
-                               refresh_token: str = None, scopes: list = None, 
-                               expires_in: int = 3600):
+async def update_user_access_token(user_uuid: str, provider: str, new_access_token: str):
     """
-    Store OAuth tokens in the public.user_oauth_tokens table.
+    Update just the access token for a user (after refresh).
     """
     supabase = get_supabase_client()
     
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         
-        # Calculate expiration time
-        expires_at = None
-        if expires_in > 0:
-            expires_at = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+        # Update only the access token (no expiry tracking)
+        response = supabase.table('user_oauth_tokens').update({
+            'access_token': new_access_token,
+            'updated_at': datetime.now().isoformat()
+        }).eq('user_id', user_uuid).eq('provider', provider).execute()
         
-        # Direct table upsert instead of using database function
+        if response.data:
+            return {
+                'success': True,
+                'message': 'Access token updated successfully'
+            }
+        else:
+            print(f"Warning: Failed to update access token for user {user_uuid}")
+            return {
+                'success': False,
+                'message': 'Failed to update access token'
+            }
+            
+    except Exception as e:
+        print(f"Error updating access token: {e}")
+        return {
+            'success': False,
+            'message': str(e)
+        }
+
+
+async def store_user_oauth_token(user_uuid: str, provider: str, access_token: str, 
+                               refresh_token: str = None, scopes: list = None, 
+                               expires_in: int = None):
+    """
+    Store OAuth tokens in the public.user_oauth_tokens table.
+    No expiry tracking - will refresh on-demand when API calls fail.
+    """
+    supabase = get_supabase_client()
+    
+    try:
+        from datetime import datetime
+        
+        # Direct table upsert without expiry tracking
         data = {
             'user_id': user_uuid,
             'provider': provider,
             'access_token': access_token,
             'refresh_token': refresh_token,
             'scopes': scopes or [],
-            'token_expires_at': expires_at,
             'updated_at': datetime.now().isoformat()
         }
         

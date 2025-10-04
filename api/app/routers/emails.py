@@ -1,8 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from app.auth import verify_token
-from app.models import EmailRequest
-from app.database import get_user_oauth_token
-from app.services import create_gmail_service, get_user_emails
+from app.models import EmailRequest, BillerProfilesResponse
+from app.database import get_user_oauth_token, update_user_access_token, save_billers_to_companies
+from app.services import (
+    create_gmail_service, 
+    get_user_emails, 
+    BillerExtractor, 
+    get_user_email_address,
+    batch_get_profile_pictures
+)
 
 router = APIRouter(prefix="/emails", tags=["emails"])
 
@@ -64,14 +70,23 @@ async def fetch_user_emails(request: EmailRequest, token: str = Depends(verify_t
         # Get user's OAuth tokens from Supabase
         oauth_tokens = await get_user_oauth_token(request.user_uuid)
         
-        # Create Gmail service
-        gmail_service = create_gmail_service(
+        # Create Gmail service (returns service and potentially refreshed credentials)
+        gmail_service, creds = create_gmail_service(
             oauth_tokens['access_token'], 
             oauth_tokens['refresh_token']
         )
         
+        # If token was refreshed, save the new access token
+        if creds.token != oauth_tokens['access_token']:
+            await update_user_access_token(
+                request.user_uuid,
+                'google',
+                creds.token
+            )
+            print(f"Updated refreshed access token for user {request.user_uuid}")
+        
         # Fetch emails from the past 3 months
-        emails = await get_user_emails(gmail_service, days_back=90)
+        emails = await get_user_emails(gmail_service, days_back=90, include_attachments=True)
         
         return {
             "message": "Invoice-related emails fetched successfully",
@@ -79,6 +94,244 @@ async def fetch_user_emails(request: EmailRequest, token: str = Depends(verify_t
             "email_count": len(emails),
             "search_terms": ["invoice", "bill", "receipt", "payment", "due", "statement", "charge", "billing", "subscription", "renewal"],
             "emails": emails
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+@router.post("/attachments/test")
+async def test_attachments(request: EmailRequest, token: str = Depends(verify_token)):
+    """
+    Test endpoint to verify attachment downloading and text extraction.
+    Returns details about attachments found in invoice emails.
+    """
+    try:
+        # Get user's OAuth tokens
+        oauth_tokens = await get_user_oauth_token(request.user_uuid)
+        
+        # Create Gmail service
+        gmail_service, creds = create_gmail_service(
+            oauth_tokens['access_token'], 
+            oauth_tokens['refresh_token']
+        )
+        
+        # Fetch emails with attachments
+        emails = await get_user_emails(
+            gmail_service, 
+            days_back=90,
+            include_attachments=True
+        )
+        
+        # Analyze attachments
+        attachment_summary = []
+        total_attachments = 0
+        emails_with_attachments = 0
+        
+        for email in emails[:10]:  # Check first 10 emails
+            if 'attachments' in email and email['attachments']:
+                emails_with_attachments += 1
+                email_info = {
+                    'subject': email.get('subject', ''),
+                    'from': email.get('from', ''),
+                    'attachments': []
+                }
+                
+                for att in email['attachments']:
+                    total_attachments += 1
+                    
+                    # Try to extract text
+                    from app.services.attachment_parser import extract_text_from_attachment
+                    extracted_text = extract_text_from_attachment(att)
+                    
+                    att_info = {
+                        'filename': att.get('filename', ''),
+                        'mime_type': att.get('mime_type', ''),
+                        'size': att.get('size', 0),
+                        'text_extracted': len(extracted_text) > 0,
+                        'text_length': len(extracted_text),
+                        'text_preview': extracted_text[:200] if extracted_text else ''
+                    }
+                    email_info['attachments'].append(att_info)
+                
+                attachment_summary.append(email_info)
+        
+        return {
+            'message': f'Analyzed {len(emails)} emails',
+            'total_emails_checked': len(emails[:10]),
+            'emails_with_attachments': emails_with_attachments,
+            'total_attachments': total_attachments,
+            'details': attachment_summary
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+def process_billers_background(user_uuid: str, oauth_tokens: dict):
+    """
+    Background task to extract and save biller profiles.
+    This runs synchronously in a background thread.
+    """
+    import asyncio
+    
+    async def async_process():
+        try:
+            print(f"🔄 Starting background biller extraction for user {user_uuid}")
+            
+            # Create Gmail service (don't refresh yet, try with current token first)
+            gmail_service, creds = create_gmail_service(
+                oauth_tokens['access_token'], 
+                oauth_tokens['refresh_token'],
+                attempt_refresh=False
+            )
+            
+            # Try to get user email - if this fails, token is invalid
+            try:
+                user_email = get_user_email_address(gmail_service)
+                print(f"👤 User email: {user_email}")
+            except Exception as e:
+                # Token is invalid/expired, try refreshing
+                if oauth_tokens.get('refresh_token'):
+                    print(f"⚠️  Access token invalid, refreshing...")
+                    gmail_service, creds = create_gmail_service(
+                        oauth_tokens['access_token'], 
+                        oauth_tokens['refresh_token'],
+                        attempt_refresh=True  # Force refresh
+                    )
+                    
+                    # Save the new access token
+                    await update_user_access_token(user_uuid, 'google', creds.token)
+                    print(f"✅ Token refreshed and saved")
+                    
+                    # Retry getting user email
+                    user_email = get_user_email_address(gmail_service)
+                    print(f"👤 User email: {user_email}")
+                else:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Access token expired and no refresh token available. User must re-authenticate."
+                    )
+            
+            # Fetch emails with attachments
+            emails = await get_user_emails(
+                gmail_service, 
+                days_back=90,
+                include_attachments=True
+            )
+            
+            if not emails:
+                print(f"⚠️  No invoice emails found for user {user_uuid}")
+                return
+            
+            # Extract biller profiles
+            extractor = BillerExtractor(user_email=user_email)
+            profiles = extractor.extract_biller_profiles(emails)
+            
+            # Cleanup extractor resources
+            await extractor.cleanup()
+            
+            # Fetch profile pictures
+            print(f"🖼️  Fetching profile pictures for {len(profiles)} billers...")
+            # Collect all unique email addresses from all billers
+            all_email_addresses = []
+            for p in profiles:
+                all_email_addresses.extend(p.contact_emails)
+            unique_emails = list(set(all_email_addresses))
+            
+            profile_pictures = batch_get_profile_pictures(unique_emails, creds)
+            
+            # Update profiles with pictures (check all their contact emails)
+            for profile in profiles:
+                for email in profile.contact_emails:
+                    if email in profile_pictures:
+                        profile.profile_picture_url = profile_pictures[email]
+                        break  # Use first found picture
+            
+            pictures_found = sum(1 for p in profiles if p.profile_picture_url)
+            print(f"🖼️  Found {pictures_found}/{len(profiles)} profile pictures")
+            
+            # Save to database
+            save_results = await save_billers_to_companies(user_uuid, profiles)
+            print(f"✅ Background processing complete: Saved {save_results['saved']}/{save_results['total']} billers")
+            
+            if save_results['failed'] > 0:
+                print(f"⚠️  Failed to save {save_results['failed']} billers: {save_results['errors']}")
+            
+            # Cleanup: Give a moment for any pending async operations
+            await asyncio.sleep(0.1)
+                
+        except Exception as e:
+            print(f"❌ Background processing error for user {user_uuid}: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Run the async function in a new event loop (background thread safe)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If loop is running, create task
+            asyncio.create_task(async_process())
+        else:
+            # If no running loop, run it
+            loop.run_until_complete(async_process())
+    except RuntimeError:
+        # Create new event loop if needed
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(async_process())
+        loop.close()
+
+
+@router.post("/billers/extract")
+async def extract_biller_profiles(
+    request: EmailRequest, 
+    background_tasks: BackgroundTasks,
+    token: str = Depends(verify_token)
+):
+    """
+    Extract unique biller profiles from user's invoice emails.
+    Returns immediately with 200 OK and processes in the background.
+    
+    This endpoint:
+    1. Validates user OAuth tokens
+    2. Starts background processing
+    3. Returns immediately
+    
+    Background processing:
+    - Fetches invoice emails from past 3 months
+    - Downloads and parses attachments (PDFs)
+    - Uses AI to extract biller information
+    - Fetches profile pictures from Google Contacts
+    - Saves all billers to database
+    """
+    try:
+        # Get user's OAuth tokens from Supabase (quick validation)
+        oauth_tokens = await get_user_oauth_token(request.user_uuid)
+        
+        # Add background task
+        background_tasks.add_task(
+            process_billers_background,
+            request.user_uuid,
+            oauth_tokens
+        )
+        
+        # Return immediately
+        return {
+            "message": "Biller extraction started in background",
+            "user_uuid": request.user_uuid,
+            "status": "processing",
+            "note": "Check your database in a few moments for extracted billers"
         }
         
     except HTTPException as e:
