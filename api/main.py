@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import ALLOWED_ORIGINS
-from app.routers import emails_router, health_router
+from app.routers import emails_router, health_router, oauth_router
 
 app = FastAPI(
     title="Donna Backend API", 
@@ -21,6 +21,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health_router)
 app.include_router(emails_router)
+app.include_router(oauth_router)
 
 if __name__ == "__main__":
     import uvicorn

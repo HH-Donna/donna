@@ -14,59 +14,51 @@ def get_supabase_client() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
-async def get_user_oauth_token(user_uuid: str):
+async def get_user_oauth_token(user_uuid: str, provider: str = 'google'):
     """
-    Retrieve the user's OAuth tokens from Supabase.
+    Retrieve the user's OAuth tokens from the public.user_oauth_tokens table.
     """
     supabase = get_supabase_client()
     
     try:
-        # Try different approaches to get user identity from Supabase
+        # Direct table query instead of using database function
+        response = supabase.table('user_oauth_tokens').select('*').eq('user_id', user_uuid).eq('provider', provider).execute()
         
-        # First, try to get user session/auth info
-        try:
-            # Method 1: Direct query to identities table
-            response = supabase.rpc('get_user_identities', {'user_uuid': user_uuid}).execute()
-            if response.data:
-                identity_data = response.data[0]
-        except Exception as e1:
-            print(f"Method 1 failed: {e1}")
-            
-            try:
-                # Method 2: Query auth.users table for provider data
-                response = supabase.table('auth.users').select('*').eq('id', user_uuid).execute()
-                if response.data:
-                    user_data = response.data[0]
-                    # Check if user has provider_token stored
-                    identity_data = user_data.get('user_metadata', {})
-                else:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="User not found in Supabase"
-                    )
-            except Exception as e2:
-                print(f"Method 2 failed: {e2}")
-                
-                # Method 3: For testing purposes, return mock data
-                # In production, you'd need proper Supabase RLS policies and correct table access
-                raise HTTPException(
-                    status_code=400,
-                    detail="Unable to access user OAuth tokens. This could be due to: 1) Supabase RLS policies blocking access, 2) User needs to re-authenticate with Gmail permissions, 3) Missing service role permissions. For testing, you may need to configure Supabase properly or use a different authentication approach."
-                )
+        if not response.data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No {provider} OAuth tokens found for user. User may need to authenticate with {provider} and grant Gmail permissions."
+            )
         
-        # Extract OAuth tokens
-        access_token = identity_data.get('access_token') or identity_data.get('provider_token')
-        refresh_token = identity_data.get('refresh_token') or identity_data.get('provider_refresh_token')
+        token_data = response.data[0]
+        access_token = token_data.get('access_token')
+        refresh_token = token_data.get('refresh_token')
+        scopes = token_data.get('scopes', [])
         
         if not access_token:
             raise HTTPException(
                 status_code=400,
-                detail="No access token found for user. User may need to re-authenticate with Gmail permissions."
+                detail=f"No valid access token found for user. User may need to re-authenticate with {provider} and grant Gmail permissions."
+            )
+        
+        # Check if Gmail scope is present
+        gmail_scopes = [
+            'https://www.googleapis.com/auth/gmail.readonly',
+            'https://mail.google.com/',
+            'https://www.googleapis.com/auth/gmail'
+        ]
+        
+        has_gmail_scope = any(scope in scopes for scope in gmail_scopes)
+        if not has_gmail_scope:
+            raise HTTPException(
+                status_code=403,
+                detail="User has not granted Gmail permissions. Please re-authenticate with Gmail access."
             )
         
         return {
             'access_token': access_token,
-            'refresh_token': refresh_token
+            'refresh_token': refresh_token,
+            'scopes': scopes
         }
     
     except HTTPException:
@@ -75,4 +67,59 @@ async def get_user_oauth_token(user_uuid: str):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to retrieve user OAuth tokens: {str(e)}"
+        )
+
+
+async def store_user_oauth_token(user_uuid: str, provider: str, access_token: str, 
+                               refresh_token: str = None, scopes: list = None, 
+                               expires_in: int = 3600):
+    """
+    Store OAuth tokens in the public.user_oauth_tokens table.
+    """
+    supabase = get_supabase_client()
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        # Calculate expiration time
+        expires_at = None
+        if expires_in > 0:
+            expires_at = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
+        
+        # Direct table upsert instead of using database function
+        data = {
+            'user_id': user_uuid,
+            'provider': provider,
+            'access_token': access_token,
+            'refresh_token': refresh_token,
+            'scopes': scopes or [],
+            'token_expires_at': expires_at,
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        # Try to upsert (insert or update) with proper conflict resolution
+        response = supabase.table('user_oauth_tokens').upsert(
+            data, 
+            on_conflict='user_id,provider'
+        ).execute()
+        
+        if response.data:
+            return {
+                'success': True,
+                'message': 'OAuth tokens stored successfully',
+                'user_id': user_uuid,
+                'provider': provider
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to store OAuth tokens - no data returned"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to store OAuth tokens: {str(e)}"
         )

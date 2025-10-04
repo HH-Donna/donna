@@ -25,3 +25,21 @@ class EmailFetchResponse(BaseModel):
     email_count: int
     search_terms: list[str]
     emails: list[EmailResponse]
+
+
+class OAuthTokenRequest(BaseModel):
+    """Request model for storing OAuth tokens."""
+    user_id: str
+    provider: str = "google"
+    access_token: str
+    refresh_token: str = ""
+    scopes: list[str] = []
+    expires_in: int = 3600  # Token expiry in seconds
+
+
+class OAuthTokenResponse(BaseModel):
+    """Response model for OAuth token storage."""
+    message: str
+    user_id: str
+    provider: str
+    stored: bool
