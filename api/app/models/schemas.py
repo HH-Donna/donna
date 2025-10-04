@@ -43,3 +43,27 @@ class OAuthTokenResponse(BaseModel):
     user_id: str
     provider: str
     stored: bool
+
+
+class BillerProfile(BaseModel):
+    """Model for a biller/company profile."""
+    full_name: str  # Company name or "Full Name from Company"
+    email_address: str
+    domain: str = ""  # Domain name extracted from email (e.g., "netflix.com")
+    profile_picture_url: str = ""
+    full_address: str = ""
+    payment_method: str = ""  # e.g., "Credit Card", "Bank Transfer", etc.
+    billing_info: str = ""  # Bank details, account numbers, etc.
+    frequency: str = ""  # Detected billing frequency (e.g., "Monthly", "Weekly", "One-time")
+    source_emails: list[str] = []  # Email IDs where this biller was found (unique invoices only)
+    first_seen: str = ""  # Date of first invoice
+    last_seen: str = ""  # Date of most recent invoice
+    total_invoices: int = 0  # Count of unique invoices (excludes drafts/adjustments)
+
+
+class BillerProfilesResponse(BaseModel):
+    """Response model for biller profiles extraction."""
+    message: str
+    user_uuid: str
+    total_billers: int
+    profiles: list[BillerProfile]

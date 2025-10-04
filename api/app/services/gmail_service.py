@@ -59,21 +59,41 @@ def extract_email_body(payload):
 def create_gmail_service(access_token: str, refresh_token: str = None):
     """
     Create a Gmail API service using OAuth tokens.
+    Automatically refreshes expired tokens using the refresh_token.
     """
     try:
         # Create credentials object
+        # For refresh_token: if empty or None, set to a placeholder
+        effective_refresh_token = refresh_token if (refresh_token and refresh_token.strip()) else None
+        
+        if not effective_refresh_token:
+            # No refresh token - token won't auto-refresh but will work until it expires
+            print("Warning: No refresh token provided. Token will not auto-refresh.")
+        
         creds = Credentials(
             token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=effective_refresh_token,
             token_uri="https://oauth2.googleapis.com/token",
             client_id=os.getenv("GOOGLE_CLIENT_ID"),
             client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
             scopes=['https://www.googleapis.com/auth/gmail.readonly']
         )
         
+        # Check if token is expired and refresh if needed
+        if creds.expired and creds.refresh_token:
+            print("Access token expired. Refreshing...")
+            creds.refresh(Request())
+            print("Token refreshed successfully")
+        elif not creds.valid and creds.refresh_token:
+            print("Invalid credentials. Attempting refresh...")
+            creds.refresh(Request())
+            print("Token refreshed successfully")
+        
         # Build Gmail service
         service = build('gmail', 'v1', credentials=creds)
-        return service
+        
+        # Return both service and potentially refreshed credentials
+        return service, creds
     
     except Exception as e:
         raise HTTPException(
@@ -82,9 +102,167 @@ def create_gmail_service(access_token: str, refresh_token: str = None):
         )
 
 
-async def get_user_emails(service, days_back: int = 90):
+def get_email_attachments(service, message_id: str, user_id: str = 'me'):
+    """
+    Download attachments from a Gmail message.
+    """
+    try:
+        message = service.users().messages().get(userId=user_id, id=message_id).execute()
+        attachments = []
+        
+        if 'payload' in message:
+            parts = message['payload'].get('parts', [])
+            
+            for part in parts:
+                if part.get('filename') and part.get('body', {}).get('attachmentId'):
+                    attachment_id = part['body']['attachmentId']
+                    filename = part['filename']
+                    mime_type = part.get('mimeType', '')
+                    
+                    # Download attachment
+                    att = service.users().messages().attachments().get(
+                        userId=user_id, 
+                        messageId=message_id, 
+                        id=attachment_id
+                    ).execute()
+                    
+                    data = att.get('data', '')
+                    
+                    attachments.append({
+                        'filename': filename,
+                        'mime_type': mime_type,
+                        'data': data,
+                        'size': att.get('size', 0)
+                    })
+        
+        return attachments
+    except Exception as e:
+        print(f"Error getting attachments for message {message_id}: {e}")
+        return []
+
+
+def get_user_email_address(service):
+    """
+    Get the authenticated user's email address.
+    """
+    try:
+        profile = service.users().getProfile(userId='me').execute()
+        return profile.get('emailAddress', '')
+    except Exception as e:
+        print(f"Error getting user email address: {e}")
+        return ''
+
+
+def get_sender_profile_picture(email_address: str, creds) -> str:
+    """
+    Get the profile picture URL for an email sender using Google People API.
+    
+    Args:
+        email_address: The sender's email address
+        creds: OAuth credentials
+        
+    Returns:
+        Profile picture URL or empty string if not found
+    """
+    try:
+        # Build People API service
+        people_service = build('people', 'v1', credentials=creds)
+        
+        # Search for person by email
+        results = people_service.people().searchContacts(
+            query=email_address,
+            readMask='photos,emailAddresses'
+        ).execute()
+        
+        contacts = results.get('results', [])
+        
+        if contacts:
+            person = contacts[0].get('person', {})
+            photos = person.get('photos', [])
+            
+            # Get the primary photo or first available
+            for photo in photos:
+                if photo.get('url'):
+                    return photo['url']
+        
+        # Fallback: Try to get from otherContacts (People API v1)
+        try:
+            # Look up the email directly using resourceName
+            person_fields = 'photos,emailAddresses,names'
+            result = people_service.otherContacts().search(
+                query=email_address,
+                readMask=person_fields
+            ).execute()
+            
+            if result.get('otherContacts'):
+                person = result['otherContacts'][0]
+                photos = person.get('photos', [])
+                if photos and photos[0].get('url'):
+                    return photos[0]['url']
+        except:
+            pass
+        
+        return ''
+        
+    except Exception as e:
+        print(f"Error fetching profile picture for {email_address}: {e}")
+        return ''
+
+
+def batch_get_profile_pictures(email_addresses: list, creds) -> dict:
+    """
+    Batch fetch profile pictures for multiple email addresses.
+    
+    Args:
+        email_addresses: List of email addresses
+        creds: OAuth credentials
+        
+    Returns:
+        Dictionary mapping email addresses to profile picture URLs
+    """
+    profile_pics = {}
+    
+    try:
+        # Build People API service
+        people_service = build('people', 'v1', credentials=creds)
+        
+        # Batch lookup (People API supports batch operations)
+        for email in email_addresses:
+            if not email:
+                continue
+            
+            try:
+                # Search for this contact
+                results = people_service.people().searchContacts(
+                    query=email,
+                    readMask='photos'
+                ).execute()
+                
+                contacts = results.get('results', [])
+                if contacts:
+                    person = contacts[0].get('person', {})
+                    photos = person.get('photos', [])
+                    if photos and photos[0].get('url'):
+                        profile_pics[email] = photos[0]['url']
+                        print(f"   🖼️  Found profile picture for {email}")
+            except Exception as e:
+                # Silently skip errors for individual lookups
+                continue
+        
+    except Exception as e:
+        print(f"Error in batch profile picture lookup: {e}")
+    
+    return profile_pics
+
+
+async def get_user_emails(service, days_back: int = 90, include_attachments: bool = False):
     """
     Fetch user's invoice-related emails from the past specified days.
+    
+    Args:
+        service: Gmail API service
+        days_back: Number of days to look back
+        include_attachments: Whether to download and include attachments
     """
     try:
         # Calculate date for query (3 months ago)
@@ -165,9 +343,20 @@ async def get_user_emails(service, days_back: int = 90):
                         'subject': headers.get('Subject', ''),
                         'date': headers.get('Date', ''),
                         'snippet': msg.get('snippet', ''),
-                        'body_preview': body_text[:500] + '...' if len(body_text) > 500 else body_text,  # First 500 chars
+                        'body_preview': body_text[:500] + '...' if len(body_text) > 500 else body_text,
+                        'full_body': body_text,  # Include full body for biller extraction
                         'invoice_indicators': [indicator for indicator in invoice_indicators if indicator in all_text]
                     }
+                    
+                    # Download attachments if requested
+                    if include_attachments:
+                        try:
+                            attachments = get_email_attachments(service, message['id'])
+                            if attachments:
+                                email_data['attachments'] = attachments
+                        except Exception as att_error:
+                            print(f"Failed to get attachments for {message['id']}: {att_error}")
+                            email_data['attachments'] = []
                     
                     emails.append(email_data)
                 

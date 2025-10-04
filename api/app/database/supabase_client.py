@@ -32,7 +32,7 @@ async def get_user_oauth_token(user_uuid: str, provider: str = 'google'):
         
         token_data = response.data[0]
         access_token = token_data.get('access_token')
-        refresh_token = token_data.get('refresh_token')
+        refresh_token = token_data.get('refresh_token') or ''  # Ensure it's a string, not None
         scopes = token_data.get('scopes', [])
         
         if not access_token:
@@ -68,6 +68,44 @@ async def get_user_oauth_token(user_uuid: str, provider: str = 'google'):
             status_code=500,
             detail=f"Failed to retrieve user OAuth tokens: {str(e)}"
         )
+
+
+async def update_user_access_token(user_uuid: str, provider: str, new_access_token: str):
+    """
+    Update just the access token for a user (after refresh).
+    """
+    supabase = get_supabase_client()
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        # Update only the access token and expiry
+        expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
+        
+        response = supabase.table('user_oauth_tokens').update({
+            'access_token': new_access_token,
+            'token_expires_at': expires_at,
+            'updated_at': datetime.now().isoformat()
+        }).eq('user_id', user_uuid).eq('provider', provider).execute()
+        
+        if response.data:
+            return {
+                'success': True,
+                'message': 'Access token updated successfully'
+            }
+        else:
+            print(f"Warning: Failed to update access token for user {user_uuid}")
+            return {
+                'success': False,
+                'message': 'Failed to update access token'
+            }
+            
+    except Exception as e:
+        print(f"Error updating access token: {e}")
+        return {
+            'success': False,
+            'message': str(e)
+        }
 
 
 async def store_user_oauth_token(user_uuid: str, provider: str, access_token: str, 

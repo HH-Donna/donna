@@ -1,8 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.auth import verify_token
-from app.models import EmailRequest
-from app.database import get_user_oauth_token
-from app.services import create_gmail_service, get_user_emails
+from app.models import EmailRequest, BillerProfilesResponse
+from app.database import get_user_oauth_token, update_user_access_token, save_billers_to_companies
+from app.services import (
+    create_gmail_service, 
+    get_user_emails, 
+    BillerExtractor, 
+    get_user_email_address,
+    batch_get_profile_pictures
+)
 
 router = APIRouter(prefix="/emails", tags=["emails"])
 
@@ -64,11 +70,20 @@ async def fetch_user_emails(request: EmailRequest, token: str = Depends(verify_t
         # Get user's OAuth tokens from Supabase
         oauth_tokens = await get_user_oauth_token(request.user_uuid)
         
-        # Create Gmail service
-        gmail_service = create_gmail_service(
+        # Create Gmail service (returns service and potentially refreshed credentials)
+        gmail_service, creds = create_gmail_service(
             oauth_tokens['access_token'], 
             oauth_tokens['refresh_token']
         )
+        
+        # If token was refreshed, save the new access token
+        if creds.token != oauth_tokens['access_token']:
+            await update_user_access_token(
+                request.user_uuid,
+                'google',
+                creds.token
+            )
+            print(f"Updated refreshed access token for user {request.user_uuid}")
         
         # Fetch emails from the past 3 months
         emails = await get_user_emails(gmail_service, days_back=90)
@@ -80,6 +95,101 @@ async def fetch_user_emails(request: EmailRequest, token: str = Depends(verify_t
             "search_terms": ["invoice", "bill", "receipt", "payment", "due", "statement", "charge", "billing", "subscription", "renewal"],
             "emails": emails
         }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+@router.post("/billers/extract", response_model=BillerProfilesResponse)
+async def extract_biller_profiles(request: EmailRequest, token: str = Depends(verify_token)):
+    """
+    Extract unique biller profiles from user's invoice emails.
+    
+    This endpoint:
+    1. Fetches invoice-related emails from the past 3 months
+    2. Downloads and analyzes email content and attachments
+    3. Uses AI to extract structured biller information
+    4. Deduplicates and returns unique biller profiles
+    
+    Each profile includes:
+    - Company/individual name and contact info
+    - Full address
+    - Payment method
+    - Billing/bank details
+    """
+    try:
+        # Get user's OAuth tokens from Supabase
+        oauth_tokens = await get_user_oauth_token(request.user_uuid)
+        
+        # Create Gmail service (returns service and potentially refreshed credentials)
+        gmail_service, creds = create_gmail_service(
+            oauth_tokens['access_token'], 
+            oauth_tokens['refresh_token']
+        )
+        
+        # If token was refreshed, save the new access token
+        if creds.token != oauth_tokens['access_token']:
+            await update_user_access_token(
+                request.user_uuid,
+                'google',
+                creds.token
+            )
+            print(f"Updated refreshed access token for user {request.user_uuid}")
+        
+        # Get the user's email address to filter out their sent emails
+        user_email = get_user_email_address(gmail_service)
+        print(f"👤 User email: {user_email}")
+        
+        # Fetch emails with full content and attachments
+        emails = await get_user_emails(
+            gmail_service, 
+            days_back=90,
+            include_attachments=True  # Include attachments for better extraction
+        )
+        
+        if not emails:
+            return BillerProfilesResponse(
+                message="No invoice emails found in the past 3 months",
+                user_uuid=request.user_uuid,
+                total_billers=0,
+                profiles=[]
+            )
+        
+        # Extract biller profiles using AI (pass user email to filter sent emails)
+        extractor = BillerExtractor(user_email=user_email)
+        profiles = extractor.extract_biller_profiles(emails)
+        
+        # Fetch profile pictures from Google Contacts/People API
+        print(f"🖼️  Fetching profile pictures for {len(profiles)} billers...")
+        email_addresses = [p.email_address for p in profiles if p.email_address]
+        profile_pictures = batch_get_profile_pictures(email_addresses, creds)
+        
+        # Update profiles with profile pictures
+        for profile in profiles:
+            if profile.email_address in profile_pictures:
+                profile.profile_picture_url = profile_pictures[profile.email_address]
+        
+        pictures_found = sum(1 for p in profiles if p.profile_picture_url)
+        print(f"🖼️  Found {pictures_found}/{len(profiles)} profile pictures")
+        
+        # Save billers to Supabase companies table
+        save_results = await save_billers_to_companies(request.user_uuid, profiles)
+        print(f"💾 Saved {save_results['saved']}/{save_results['total']} billers to database")
+        
+        if save_results['failed'] > 0:
+            print(f"⚠️  Failed to save {save_results['failed']} billers: {save_results['errors']}")
+        
+        return BillerProfilesResponse(
+            message=f"Successfully extracted {len(profiles)} unique biller profiles and saved {save_results['saved']} to database",
+            user_uuid=request.user_uuid,
+            total_billers=len(profiles),
+            profiles=profiles
+        )
         
     except HTTPException as e:
         raise e
