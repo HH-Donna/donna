@@ -77,14 +77,11 @@ async def update_user_access_token(user_uuid: str, provider: str, new_access_tok
     supabase = get_supabase_client()
     
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         
-        # Update only the access token and expiry
-        expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
-        
+        # Update only the access token (no expiry tracking)
         response = supabase.table('user_oauth_tokens').update({
             'access_token': new_access_token,
-            'token_expires_at': expires_at,
             'updated_at': datetime.now().isoformat()
         }).eq('user_id', user_uuid).eq('provider', provider).execute()
         
@@ -110,28 +107,23 @@ async def update_user_access_token(user_uuid: str, provider: str, new_access_tok
 
 async def store_user_oauth_token(user_uuid: str, provider: str, access_token: str, 
                                refresh_token: str = None, scopes: list = None, 
-                               expires_in: int = 3600):
+                               expires_in: int = None):
     """
     Store OAuth tokens in the public.user_oauth_tokens table.
+    No expiry tracking - will refresh on-demand when API calls fail.
     """
     supabase = get_supabase_client()
     
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         
-        # Calculate expiration time
-        expires_at = None
-        if expires_in > 0:
-            expires_at = (datetime.now() + timedelta(seconds=expires_in)).isoformat()
-        
-        # Direct table upsert instead of using database function
+        # Direct table upsert without expiry tracking
         data = {
             'user_id': user_uuid,
             'provider': provider,
             'access_token': access_token,
             'refresh_token': refresh_token,
             'scopes': scopes or [],
-            'token_expires_at': expires_at,
             'updated_at': datetime.now().isoformat()
         }
         

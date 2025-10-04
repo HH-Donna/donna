@@ -56,19 +56,22 @@ def extract_email_body(payload):
     return body
 
 
-def create_gmail_service(access_token: str, refresh_token: str = None):
+def create_gmail_service(access_token: str, refresh_token: str = None, attempt_refresh: bool = False):
     """
     Create a Gmail API service using OAuth tokens.
-    Automatically refreshes expired tokens using the refresh_token.
+    Only refreshes token if attempt_refresh=True (after a failed API call).
+    
+    Args:
+        access_token: Current access token
+        refresh_token: Refresh token (optional)
+        attempt_refresh: If True, will try to refresh the token before creating service
     """
     try:
         # Create credentials object
-        # For refresh_token: if empty or None, set to a placeholder
         effective_refresh_token = refresh_token if (refresh_token and refresh_token.strip()) else None
         
         if not effective_refresh_token:
-            # No refresh token - token won't auto-refresh but will work until it expires
-            print("Warning: No refresh token provided. Token will not auto-refresh.")
+            print("⚠️  No refresh token - token cannot be refreshed")
         
         creds = Credentials(
             token=access_token,
@@ -79,20 +82,16 @@ def create_gmail_service(access_token: str, refresh_token: str = None):
             scopes=['https://www.googleapis.com/auth/gmail.readonly']
         )
         
-        # Check if token is expired and refresh if needed
-        if creds.expired and creds.refresh_token:
-            print("Access token expired. Refreshing...")
+        # Only refresh if explicitly requested (after API failure)
+        if attempt_refresh and creds.refresh_token:
+            print("🔄 Attempting to refresh access token...")
             creds.refresh(Request())
-            print("Token refreshed successfully")
-        elif not creds.valid and creds.refresh_token:
-            print("Invalid credentials. Attempting refresh...")
-            creds.refresh(Request())
-            print("Token refreshed successfully")
+            print("✅ Token refreshed successfully")
         
         # Build Gmail service
         service = build('gmail', 'v1', credentials=creds)
         
-        # Return both service and potentially refreshed credentials
+        # Return both service and credentials
         return service, creds
     
     except Exception as e:

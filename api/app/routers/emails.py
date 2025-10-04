@@ -189,20 +189,39 @@ def process_billers_background(user_uuid: str, oauth_tokens: dict):
         try:
             print(f"🔄 Starting background biller extraction for user {user_uuid}")
             
-            # Create Gmail service
+            # Create Gmail service (don't refresh yet, try with current token first)
             gmail_service, creds = create_gmail_service(
                 oauth_tokens['access_token'], 
-                oauth_tokens['refresh_token']
+                oauth_tokens['refresh_token'],
+                attempt_refresh=False
             )
             
-            # If token was refreshed, save it
-            if creds.token != oauth_tokens['access_token']:
-                await update_user_access_token(user_uuid, 'google', creds.token)
-                print(f"🔄 Updated refreshed access token for user {user_uuid}")
-            
-            # Get user email to filter sent emails
-            user_email = get_user_email_address(gmail_service)
-            print(f"👤 User email: {user_email}")
+            # Try to get user email - if this fails, token is invalid
+            try:
+                user_email = get_user_email_address(gmail_service)
+                print(f"👤 User email: {user_email}")
+            except Exception as e:
+                # Token is invalid/expired, try refreshing
+                if oauth_tokens.get('refresh_token'):
+                    print(f"⚠️  Access token invalid, refreshing...")
+                    gmail_service, creds = create_gmail_service(
+                        oauth_tokens['access_token'], 
+                        oauth_tokens['refresh_token'],
+                        attempt_refresh=True  # Force refresh
+                    )
+                    
+                    # Save the new access token
+                    await update_user_access_token(user_uuid, 'google', creds.token)
+                    print(f"✅ Token refreshed and saved")
+                    
+                    # Retry getting user email
+                    user_email = get_user_email_address(gmail_service)
+                    print(f"👤 User email: {user_email}")
+                else:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Access token expired and no refresh token available. User must re-authenticate."
+                    )
             
             # Fetch emails with attachments
             emails = await get_user_emails(
