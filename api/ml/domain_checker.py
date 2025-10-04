@@ -25,6 +25,7 @@ import unicodedata
 import difflib
 import socket
 import base64
+import os
 from typing import Dict, Any, List, Tuple, Optional
 
 # Optional imports for enhanced domain analysis
@@ -32,6 +33,12 @@ try:
     import tldextract
 except Exception:
     tldextract = None
+
+# Optional imports for Gemini AI
+try:
+    import google.generativeai as genai
+except Exception:
+    genai = None
 
 # =============================================================================
 # CONFIGURATION AND PATTERNS
@@ -64,6 +71,507 @@ SUSPICIOUS_TLDS = {
 }
 
 # Bank account validation removed - scammers can easily get valid account numbers
+
+# =============================================================================
+# GEMINI AI INTEGRATION
+# =============================================================================
+
+def initialize_gemini():
+    """Initialize Gemini AI with API key from environment."""
+    if not genai:
+        return None
+    
+    # Load environment variables from .env.local
+    from dotenv import load_dotenv
+    load_dotenv('.env.local')
+    
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("Warning: GEMINI_API_KEY not found in environment variables")
+        return None
+    
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        return model
+    except Exception as e:
+        print(f"Warning: Failed to initialize Gemini: {e}")
+        return None
+
+
+def analyze_email_with_gemini(gmail_msg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Use Gemini AI to analyze if email is a bill vs receipt vs neither.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        
+    Returns:
+        Dict[str, Any]: Analysis results containing:
+            - is_billing: Boolean indicating if email is billing-related
+            - email_type: "bill", "receipt", or "other"
+            - confidence: Confidence score (0.0-1.0)
+            - reasoning: AI's reasoning for the decision
+    """
+    model = initialize_gemini()
+    if not model:
+        # Fallback to rule-based detection
+        return {
+            "is_billing": is_billing_email(gmail_msg),
+            "email_type": "unknown",
+            "confidence": 0.5,
+            "reasoning": "Gemini not available, using fallback detection"
+        }
+    
+    # Parse email content
+    parsed_data = parse_gmail_message(gmail_msg)
+    subject = parsed_data.get("subject", "")
+    body_text = parsed_data.get("body_text", "")
+    from_address = parsed_data.get("from_address", "")
+    
+    # Check if money is mentioned (trigger for Gemini analysis)
+    money_indicators = ["$", "usd", "dollar", "euro", "£", "€", "amount", "total", "price", "cost", "fee", "charge"]
+    has_money = any(indicator.lower() in f"{subject} {body_text}".lower() for indicator in money_indicators)
+    
+    if not has_money:
+        return {
+            "is_billing": False,
+            "email_type": "other",
+            "confidence": 0.9,
+            "reasoning": "No monetary amounts detected"
+        }
+    
+    # Prepare prompt for Gemini
+    prompt = f"""
+    Analyze this email to determine if it's a BILL, RECEIPT, or OTHER type of email.
+
+    EMAIL DETAILS:
+    From: {from_address}
+    Subject: {subject}
+    Body: {body_text[:1000]}...
+
+    CLASSIFICATION RULES:
+    - BILL: Requesting payment, invoice, statement, payment due, subscription renewal
+    - RECEIPT: Confirmation of payment, transaction completed, order confirmation
+    - OTHER: Everything else (newsletters, notifications, personal emails, etc.)
+
+    Respond with ONLY a JSON object in this exact format:
+    {{
+        "is_billing": true/false,
+        "email_type": "bill" or "receipt" or "other",
+        "confidence": 0.0-1.0,
+        "reasoning": "Brief explanation of decision"
+    }}
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+        
+        # Extract JSON from response
+        import json
+        if response_text.startswith("```json"):
+            response_text = response_text[7:-3]
+        elif response_text.startswith("```"):
+            response_text = response_text[3:-3]
+        
+        result = json.loads(response_text)
+        
+        # Validate response format
+        if not all(key in result for key in ["is_billing", "email_type", "confidence", "reasoning"]):
+            raise ValueError("Invalid response format")
+        
+        return result
+        
+    except Exception as e:
+        print(f"Warning: Gemini analysis failed: {e}")
+        # Fallback to rule-based detection
+        return {
+            "is_billing": is_billing_email(gmail_msg),
+            "email_type": "unknown",
+            "confidence": 0.5,
+            "reasoning": f"Gemini failed: {str(e)}, using fallback"
+        }
+
+
+# =============================================================================
+# BILLING EMAIL DETECTION
+# =============================================================================
+
+def is_billing_email(gmail_msg: Dict[str, Any]) -> bool:
+    """
+    Check if a Gmail message is billing/invoice related.
+    
+    Analyzes email subject, body, and sender to determine if it's
+    a billing or invoice email that should be processed for fraud detection.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        
+    Returns:
+        bool: True if email appears to be billing/invoice related
+    """
+    if not gmail_msg or "payload" not in gmail_msg:
+        return False
+    
+    payload = gmail_msg["payload"]
+    headers = {}
+    
+    # Extract headers
+    for header in payload.get("headers", []):
+        headers[header["name"].lower()] = header["value"]
+    
+    # Get email content
+    subject = headers.get("subject", "").lower()
+    from_address = headers.get("from", "").lower()
+    
+    # Extract body text for analysis
+    body_text = ""
+    def extract_text_from_parts(parts: List[Dict[str, Any]]):
+        nonlocal body_text
+        for part in parts:
+            mime_type = part.get("mimeType", "")
+            if mime_type in ["text/plain", "text/html"]:
+                body_data = part.get("body", {}).get("data")
+                if body_data:
+                    try:
+                        decoded_text = base64.urlsafe_b64decode(body_data + "==").decode("utf-8")
+                        body_text += decoded_text.lower() + " "
+                    except Exception:
+                        pass
+            if "parts" in part:
+                extract_text_from_parts(part["parts"])
+    
+    if "parts" in payload:
+        extract_text_from_parts(payload["parts"])
+    
+    # Combine all text for analysis
+    all_text = f"{subject} {body_text}".lower()
+    
+    # Billing/invoice keywords
+    billing_keywords = [
+        # Invoice terms
+        "invoice", "bill", "billing", "statement", "receipt",
+        # Payment terms  
+        "payment", "pay", "due", "overdue", "outstanding",
+        # Amount terms
+        "amount", "total", "subtotal", "tax", "fee", "charge",
+        # Account terms
+        "account", "balance", "debit", "credit", "transaction",
+        # Subscription terms
+        "subscription", "renewal", "monthly", "annual", "recurring",
+        # Service terms
+        "service", "usage", "consumption", "meter", "quota",
+        # Financial terms
+        "financial", "fiscal", "quarterly", "yearly", "period"
+    ]
+    
+    # Check if any billing keywords are present
+    keyword_matches = sum(1 for keyword in billing_keywords if keyword in all_text)
+    
+    # Threshold: at least 2 billing keywords or specific high-confidence terms
+    high_confidence_terms = ["invoice", "bill", "payment due", "statement", "receipt"]
+    has_high_confidence = any(term in all_text for term in high_confidence_terms)
+    
+    # Additional checks
+    has_amount = any(char.isdigit() for char in all_text) and any(word in all_text for word in ["$", "usd", "dollar", "euro", "£", "€"])
+    has_account_info = any(term in all_text for term in ["account number", "routing", "iban", "swift", "wire"])
+    
+    # Decision logic
+    is_billing = (
+        keyword_matches >= 2 or  # Multiple billing keywords
+        has_high_confidence or   # High-confidence terms
+        (keyword_matches >= 1 and (has_amount or has_account_info))  # One keyword + financial details
+    )
+    
+    return is_billing
+
+
+def classify_email_type_with_gemini(
+    gmail_msg: Dict[str, Any], 
+    user_uuid: Optional[str] = None,
+    fraud_logger: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Classify email type using Gemini AI (bill vs receipt vs other).
+    
+    This function determines if an email is billing-related and what type
+    it is using Gemini AI analysis.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        user_uuid (str, optional): User UUID for logging
+        fraud_logger (EmailFraudLogger, optional): Logger instance for database logging
+        
+    Returns:
+        Dict[str, Any]: Classification results containing:
+            - is_billing: Boolean indicating if email is billing-related
+            - email_type: "bill", "receipt", or "other"
+            - confidence: Confidence score from Gemini
+            - reasoning: AI reasoning for classification
+            - parsed_data: Extracted email data
+            - log_entries: List of logged decisions (if logging enabled)
+    """
+    # Use Gemini AI to analyze email type
+    gemini_result = analyze_email_with_gemini(gmail_msg)
+    email_id = gmail_msg.get("id", "unknown")
+    log_entries = []
+    
+    # Log Gemini analysis if logger provided
+    if fraud_logger and user_uuid:
+        try:
+            gemini_log = fraud_logger.log_gemini_analysis(email_id, user_uuid, gemini_result)
+            log_entries.append(gemini_log)
+        except Exception as e:
+            print(f"Warning: Failed to log Gemini analysis: {e}")
+    
+    # Return classification results
+    result = {
+        "is_billing": gemini_result["is_billing"],
+        "email_type": gemini_result["email_type"],
+        "confidence": gemini_result["confidence"],
+        "reasoning": gemini_result["reasoning"],
+        "parsed_data": parse_gmail_message(gmail_msg),
+        "log_entries": log_entries
+    }
+    
+    return result
+
+
+def analyze_domain_legitimacy(
+    gmail_msg: Dict[str, Any],
+    email_type: str,
+    user_uuid: Optional[str] = None,
+    fraud_logger: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Analyze domain legitimacy for billing emails.
+    
+    This function performs domain analysis on the sender's email address
+    to determine if it's legitimate or suspicious.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        email_type (str): Email type from Gemini classification ("bill", "receipt", "other")
+        user_uuid (str, optional): User UUID for logging
+        fraud_logger (EmailFraudLogger, optional): Logger instance for database logging
+        
+    Returns:
+        Dict[str, Any]: Domain analysis results containing:
+            - is_legitimate: Boolean indicating domain legitimacy
+            - domain_analysis: Detailed domain analysis results
+            - confidence: Confidence score from domain analysis
+            - reasons: List of issues found
+            - halt_reason: Reason for halting (if applicable)
+            - log_entries: List of logged decisions (if logging enabled)
+    """
+    email_id = gmail_msg.get("id", "unknown")
+    log_entries = []
+    
+    # Parse email data
+    parsed_data = parse_gmail_message(gmail_msg)
+    from_address = parsed_data["from_address"]
+    
+    # If no sender address, halt
+    if not from_address:
+        result = {
+            "is_legitimate": False,
+            "domain_analysis": {"is_suspicious": True, "reasons": ["no_sender"], "confidence": 1.0},
+            "confidence": 1.0,
+            "reasons": ["no_sender"],
+            "halt_reason": "no_sender",
+            "log_entries": log_entries
+        }
+        
+        # Log domain analysis for no sender case (halt)
+        if fraud_logger and user_uuid:
+            try:
+                domain_log = fraud_logger.log_domain_check(email_id, user_uuid, result)
+                log_entries.append(domain_log)
+                result["log_entries"] = log_entries
+            except Exception as e:
+                print(f"Warning: Failed to log domain analysis: {e}")
+        
+        return result
+    
+    # Perform domain legitimacy check
+    legitimacy_result = check_domain_legitimacy(
+        email_address=from_address,
+        vendor_name=None
+    )
+    
+    # Log domain analysis if logger provided
+    if fraud_logger and user_uuid:
+        try:
+            domain_log = fraud_logger.log_domain_check(email_id, user_uuid, legitimacy_result)
+            log_entries.append(domain_log)
+        except Exception as e:
+            print(f"Warning: Failed to log domain analysis: {e}")
+    
+    # Determine halt reason based on domain analysis
+    if not legitimacy_result["is_legitimate"]:
+        legitimacy_result["halt_reason"] = "suspicious_domain"
+    else:
+        legitimacy_result["halt_reason"] = None  # Proceed
+    
+    legitimacy_result["log_entries"] = log_entries
+    
+    return legitimacy_result
+
+
+def check_billing_email_legitimacy(
+    gmail_msg: Dict[str, Any], 
+    user_uuid: Optional[str] = None,
+    fraud_logger: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Complete fraud detection pipeline for billing emails.
+    
+    This is the main orchestrator function that:
+    1. First checks if email is billing-related using rule-based detection
+    2. Then classifies email type using Gemini AI (bill vs receipt vs other)
+    3. Finally analyzes domain legitimacy for bills
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        user_uuid (str, optional): User UUID for logging
+        fraud_logger (EmailFraudLogger, optional): Logger instance for database logging
+        
+    Returns:
+        Dict[str, Any]: Complete analysis results containing:
+            - is_billing: Boolean indicating if email is billing-related
+            - email_type: "bill", "receipt", or "other"
+            - is_legitimate: Boolean indicating domain legitimacy (if bill)
+            - domain_analysis: Domain analysis results (if bill)
+            - confidence: Confidence score
+            - reasons: List of issues found (if bill)
+            - reasoning: AI reasoning for billing classification
+            - parsed_data: Extracted email data
+            - log_entries: List of logged decisions (if logging enabled)
+            - halt_reason: Reason for halting (if applicable)
+    """
+    email_id = gmail_msg.get("id", "unknown")
+    all_log_entries = []
+    
+    # Step 1: Check if email is billing-related (rule-based, fast filter)
+    is_billing_rule_based = is_billing_email(gmail_msg)
+    
+    # If not billing-related by rule-based check, halt early
+    if not is_billing_rule_based:
+        result = {
+            "is_billing": False,
+            "email_type": "other",
+            "is_legitimate": None,
+            "domain_analysis": None,
+            "confidence": 0.9,  # High confidence in rule-based detection
+            "reasons": [],
+            "reasoning": "Rule-based detection: Not billing-related",
+            "parsed_data": parse_gmail_message(gmail_msg),
+            "log_entries": all_log_entries,
+            "halt_reason": "not_billing_rule_based"
+        }
+        
+        # Log final decision for non-billing emails (halt)
+        if fraud_logger and user_uuid:
+            try:
+                final_log = fraud_logger.log_final_decision(email_id, user_uuid, result)
+                all_log_entries.append(final_log)
+                result["log_entries"] = all_log_entries
+            except Exception as e:
+                print(f"Warning: Failed to log final decision: {e}")
+        
+        return result
+    
+    # Step 2: Classify email type using Gemini AI
+    classification_result = classify_email_type_with_gemini(gmail_msg, user_uuid, fraud_logger)
+    all_log_entries.extend(classification_result["log_entries"])
+    
+    # If not billing-related by Gemini, halt processing
+    if not classification_result["is_billing"]:
+        result = {
+            "is_billing": False,
+            "email_type": classification_result["email_type"],
+            "is_legitimate": None,
+            "domain_analysis": None,
+            "confidence": classification_result["confidence"],
+            "reasons": [],
+            "reasoning": classification_result["reasoning"],
+            "parsed_data": classification_result["parsed_data"],
+            "log_entries": all_log_entries,
+            "halt_reason": "not_billing_gemini"
+        }
+        
+        # Log final decision for non-billing emails (halt)
+        if fraud_logger and user_uuid:
+            try:
+                final_log = fraud_logger.log_final_decision(email_id, user_uuid, result)
+                all_log_entries.append(final_log)
+                result["log_entries"] = all_log_entries
+            except Exception as e:
+                print(f"Warning: Failed to log final decision: {e}")
+        
+        return result
+    
+    # If it's a receipt, proceed (receipts are safe)
+    if classification_result["email_type"] == "receipt":
+        result = {
+            "is_billing": True,
+            "email_type": "receipt",
+            "is_legitimate": None,  # Skip analysis for receipts
+            "domain_analysis": None,
+            "confidence": classification_result["confidence"],
+            "reasons": [],
+            "reasoning": f"Receipt detected: {classification_result['reasoning']}",
+            "parsed_data": classification_result["parsed_data"],
+            "log_entries": all_log_entries,
+            "halt_reason": None  # Proceed
+        }
+        
+        # Log final decision for receipts (proceed)
+        if fraud_logger and user_uuid:
+            try:
+                final_log = fraud_logger.log_final_decision(email_id, user_uuid, result)
+                all_log_entries.append(final_log)
+                result["log_entries"] = all_log_entries
+            except Exception as e:
+                print(f"Warning: Failed to log final decision: {e}")
+        
+        return result
+    
+    # Step 3: Analyze domain legitimacy for bills
+    domain_result = analyze_domain_legitimacy(
+        gmail_msg, 
+        classification_result["email_type"], 
+        user_uuid, 
+        fraud_logger
+    )
+    all_log_entries.extend(domain_result["log_entries"])
+    
+    # Combine all results
+    final_result = {
+        "is_billing": True,
+        "email_type": classification_result["email_type"],
+        "is_legitimate": domain_result["is_legitimate"],
+        "domain_analysis": domain_result["domain_analysis"],
+        "confidence": min(classification_result["confidence"], domain_result["confidence"]),
+        "reasons": domain_result["reasons"],
+        "reasoning": classification_result["reasoning"],
+        "parsed_data": classification_result["parsed_data"],
+        "log_entries": all_log_entries,
+        "halt_reason": domain_result["halt_reason"]
+    }
+    
+    # Log final decision for bills
+    if fraud_logger and user_uuid:
+        try:
+            final_log = fraud_logger.log_final_decision(email_id, user_uuid, final_result)
+            all_log_entries.append(final_log)
+            final_result["log_entries"] = all_log_entries
+        except Exception as e:
+            print(f"Warning: Failed to log final decision: {e}")
+    
+    return final_result
+
 
 # =============================================================================
 # GMAIL API PARSING
@@ -546,33 +1054,6 @@ if __name__ == "__main__":
             ]
         }
     }
-    
-    # Test Gmail API parsing
-    print("=" * 60)
-    print("GMAIL API PARSING TEST")
-    print("=" * 60)
-    
-    parsed = parse_gmail_message(gmail_example)
-    print(f"From: {parsed['from_address']}")
-    print(f"To: {parsed['to_address']}")
-    print(f"Subject: {parsed['subject']}")
-    print(f"Body length: {len(parsed['body_text'])} characters")
-    print(f"Attachments: {len(parsed['attachments'])}")
-    for att in parsed['attachments']:
-        print(f"  - {att['filename']} ({att['mimeType']}, {att['size']} bytes)")
-    print()
-    
-    # Test Gmail message legitimacy check
-    print("=" * 60)
-    print("GMAIL MESSAGE LEGITIMACY CHECK")
-    print("=" * 60)
-    
-    result = check_gmail_message_legitimacy(gmail_example)
-    print(f"Legitimate: {result['is_legitimate']}")
-    print(f"Confidence: {result['confidence']:.2f}")
-    if result['reasons']:
-        print(f"Issues: {', '.join(result['reasons'])}")
-    print()
     
     # Test cases for direct domain checking
     test_cases = [
