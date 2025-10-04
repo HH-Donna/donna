@@ -49,6 +49,7 @@ class BillerProfile(BaseModel):
     """Model for a biller/company profile."""
     full_name: str  # Company name or "Full Name from Company"
     contact_emails: list[str] = []  # All email addresses used by this biller
+    biller_phone_number: str = ""  # Biller's contact phone number
     domain: str = ""  # Domain name extracted from email (e.g., "netflix.com")
     profile_picture_url: str = ""
     full_address: str = ""

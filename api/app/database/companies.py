@@ -21,6 +21,7 @@ async def save_biller_to_companies(user_uuid: str, biller: BillerProfile) -> dic
             'name': biller.full_name,
             'domain': biller.domain,
             'contact_emails': biller.contact_emails,  # Array of all emails
+            'biller_phone_number': biller.biller_phone_number,
             'billing_address': biller.full_address,
             'profile_picture_url': biller.profile_picture_url,
             'payment_method': biller.payment_method,
