@@ -23,8 +23,6 @@ export async function GET(request: Request) {
       const providerToken = session.provider_token
       const providerRefreshToken = session.provider_refresh_token
       
-      // Get actual token expiry from session (Google provides this)
-      const expiresIn = session.expires_in || 3600 // Use actual expiry or default to 1 hour
       
       // Check if we have Gmail-related scopes (including People API for profile pictures)
       const scopes = session.provider_token ? [
@@ -38,7 +36,6 @@ export async function GET(request: Request) {
         try {
           console.log('Storing OAuth tokens:', {
             has_refresh_token: !!providerRefreshToken,
-            expires_in: expiresIn,
             scopes: scopes.length
           })
           
@@ -54,7 +51,6 @@ export async function GET(request: Request) {
               access_token: providerToken,
               refresh_token: providerRefreshToken || '',
               scopes: scopes,
-              expires_in: expiresIn // Use actual expiry from Google
             })
           })
           
