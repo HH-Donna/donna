@@ -20,11 +20,13 @@ async def save_biller_to_companies(user_uuid: str, biller: BillerProfile) -> dic
             'user_id': user_uuid,
             'name': biller.full_name,
             'domain': biller.domain,
-            'contact_email': biller.email_address,
+            'contact_emails': biller.contact_emails,  # Array of all emails
             'billing_address': biller.full_address,
             'profile_picture_url': biller.profile_picture_url,
             'payment_method': biller.payment_method,
-            'billing_info': biller.billing_info,
+            'biller_billing_details': biller.biller_billing_details,
+            'user_billing_details': biller.user_billing_details,
+            'user_account_number': biller.user_account_number,
             'frequency': biller.frequency,
             'total_invoices': total_invoices,
             'source_email_ids': biller.source_emails,
@@ -38,12 +40,20 @@ async def save_biller_to_companies(user_uuid: str, biller: BillerProfile) -> dic
         # We'll use upsert() which automatically handles conflicts based on primary key
         # For user_id+domain uniqueness, we need to handle it differently
         
-        # First, try to find existing company
+        # First, try to find existing company by user_id and domain
         existing = supabase.table('companies')\
             .select('id')\
             .eq('user_id', user_uuid)\
             .eq('domain', company_data['domain'])\
             .execute()
+        
+        # If not found by domain, try by first contact email
+        if not existing.data and company_data['contact_emails']:
+            existing = supabase.table('companies')\
+                .select('id')\
+                .eq('user_id', user_uuid)\
+                .contains('contact_emails', [company_data['contact_emails'][0]])\
+                .execute()
         
         if existing.data and len(existing.data) > 0:
             # Update existing company

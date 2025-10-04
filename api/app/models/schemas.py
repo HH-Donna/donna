@@ -48,12 +48,14 @@ class OAuthTokenResponse(BaseModel):
 class BillerProfile(BaseModel):
     """Model for a biller/company profile."""
     full_name: str  # Company name or "Full Name from Company"
-    email_address: str
+    contact_emails: list[str] = []  # All email addresses used by this biller
     domain: str = ""  # Domain name extracted from email (e.g., "netflix.com")
     profile_picture_url: str = ""
     full_address: str = ""
     payment_method: str = ""  # e.g., "Credit Card", "Bank Transfer", etc.
-    billing_info: str = ""  # Bank details, account numbers, etc.
+    biller_billing_details: str = ""  # Biller's bank account, IBAN, payment instructions
+    user_billing_details: str = ""  # User's payment method/card used (e.g., "Card ending 1234")
+    user_account_number: str = ""  # User's account/client/customer number with this biller
     frequency: str = ""  # Detected billing frequency (e.g., "Monthly", "Weekly", "One-time")
     source_emails: list[str] = []  # Email IDs where this biller was found (unique invoices only)
     total_invoices: int = 0  # Count of unique invoices (excludes drafts/adjustments)

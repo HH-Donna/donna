@@ -36,6 +36,14 @@ class BillerExtractor:
             self.client = None
             print("⚠️  GEMINI_API_KEY not set. Using regex extraction.")
     
+    async def cleanup(self):
+        """Cleanup resources, especially the Gemini client."""
+        if self.client:
+            try:
+                await self.client.aclose()
+            except:
+                pass
+    
     def extract_biller_profiles(self, emails: List[Dict]) -> List[BillerProfile]:
         """
         Extract unique biller profiles from a list of invoice emails.
@@ -217,7 +225,7 @@ Return only the array, no explanation."""
         return biller_info
     
     def _prepare_email_content(self, email: Dict) -> str:
-        """Prepare email content for analysis."""
+        """Prepare email content for analysis, including attachment text."""
         parts = []
         
         # Add from address
@@ -237,14 +245,23 @@ Return only the array, no explanation."""
         
         # Add full body if available
         if 'full_body' in email:
-            parts.append(f"\nFull Content:\n{email['full_body']}")
+            parts.append(f"\nFull Content:\n{email['full_body'][:3000]}")  # Limit to 3000 chars
         
-        # Add attachment info
+        # Process and add attachment content
         if 'attachments' in email and email['attachments']:
-            parts.append(f"\nAttachments: {len(email['attachments'])} file(s)")
-            for att in email['attachments']:
-                if 'extracted_text' in att:
-                    parts.append(f"\nAttachment '{att['filename']}':\n{att['extracted_text']}")
+            from app.services.attachment_parser import process_attachments
+            
+            parts.append(f"\n=== ATTACHMENTS ({len(email['attachments'])} files) ===")
+            
+            # Extract text from attachments
+            attachment_text = process_attachments(email['attachments'])
+            if attachment_text:
+                # Limit attachment text to avoid token overflow
+                parts.append(attachment_text[:5000])  # Max 5000 chars from attachments
+            else:
+                # Just list filenames if no text extracted
+                filenames = [att.get('filename', 'unknown') for att in email['attachments']]
+                parts.append(f"Files: {', '.join(filenames)}")
         
         return "\n".join(parts)
     
@@ -257,8 +274,10 @@ Return only the array, no explanation."""
         emails_xml = []
         for idx, email in enumerate(emails):
             email_content = self._prepare_email_content(email)
-            # Truncate each email to ~2000 chars to fit more in context
-            email_summary = email_content[:2000]
+            # Increase limit to include attachment text (attachments are crucial for complete info)
+            # Each email: ~3000 body + ~5000 attachments = 8000 chars max
+            # Batch of 10 = ~80K chars, well within 1M token context
+            email_summary = email_content[:8000]
             
             emails_xml.append(f"""<email id="{idx}" message_id="{email.get('id', '')}">
 <from>{email.get('from', '')}</from>
@@ -292,18 +311,23 @@ For each UNIQUE biller (company/person sending invoices), extract:
 <field name="profile_picture_url">Logo image URL from email (empty if none)</field>
 <field name="full_address">Complete physical address: street, city, postal code, country</field>
 <field name="payment_method">How they accept payment: Credit Card, Direct Debit, Bank Transfer, PayPal, etc.</field>
-<field name="billing_info">Bank account details, IBAN, sort code, payment reference numbers, billing instructions</field>
+<field name="biller_billing_details">BILLER's bank account, IBAN, sort code, account numbers for paying THEM</field>
+<field name="user_billing_details">USER's payment method used (e.g., "Card ending 1234", "Account ****5678")</field>
+<field name="user_account_number">USER's account/client/customer number with this biller (e.g., "Account: A-12345", "Customer ID: 98765")</field>
 <field name="frequency">Billing pattern: "Monthly", "Weekly", "Quarterly", "Annual", "One-time", "Irregular"</field>
 <field name="source_email_ids">Comma-separated email IDs (use FINAL version only for revised invoices)</field>
 <field name="latest_date">Most recent invoice date</field>
 </extraction_guide>
 
-IMPORTANT:
+IMPORTANT EXTRACTION RULES:
 - Look in email body/footer for addresses, bank details, payment info
+- CHECK ATTACHMENTS CAREFULLY - invoices often have complete info in PDF attachments
 - Extract logo URLs from <img src="..."> tags
 - For "noreply@company.com", extract company name from domain
+- DISTINGUISH between biller's bank details (for paying them) vs user's payment method (what they used)
 - Use empty string "" if info not found
 - Deduplicate by email_address
+- Include ALL email IDs in source_email_ids array
 
 Return ONLY valid JSON array (no markdown, no explanation):
 
@@ -315,7 +339,9 @@ Return ONLY valid JSON array (no markdown, no explanation):
     "profile_picture_url": "https://logo.url",
     "full_address": "123 Main St, City, ZIP, Country",
     "payment_method": "Credit Card",
-    "billing_info": "Account: 1234567890",
+    "biller_billing_details": "Bank: HSBC, Account: 12345678, IBAN: GB29...",
+    "user_billing_details": "Card ending 1234",
+    "user_account_number": "Account No: A-12345",
     "frequency": "Monthly",
     "source_email_ids": [0, 5, 7],
     "latest_date": "2025-10-01"
@@ -377,7 +403,9 @@ Return ONLY valid JSON array (no markdown, no explanation):
                     'profile_picture_url': biller_item.get('profile_picture_url', ''),
                     'full_address': biller_item.get('full_address', ''),
                     'payment_method': biller_item.get('payment_method', ''),
-                    'billing_info': biller_item.get('billing_info', ''),
+                    'biller_billing_details': biller_item.get('biller_billing_details', ''),
+                    'user_billing_details': biller_item.get('user_billing_details', ''),
+                    'user_account_number': biller_item.get('user_account_number', ''),
                     'frequency': biller_item.get('frequency', ''),
                     'source_email_id': source_email_ids[0] if source_email_ids else '',
                     'email_date': biller_item.get('latest_date', ''),
@@ -494,19 +522,27 @@ Example:
             'profile_picture_url': '',
             'full_address': full_address,
             'payment_method': '',
-            'billing_info': '',
+            'biller_billing_details': '',
+            'user_billing_details': '',
+            'user_account_number': '',
             'frequency': '',
             'source_email_id': email.get('id', ''),
             'email_date': email.get('date', '')
         }
     
     def _deduplicate_billers(self, all_billers: List[Dict]) -> List[BillerProfile]:
-        """Deduplicate billers by email address and merge information."""
+        """
+        Deduplicate billers by email address AND company name.
+        Handles cases where same company uses multiple email addresses.
+        """
         
         biller_map: Dict[str, Dict] = {}
+        name_to_key_map: Dict[str, str] = {}  # Map company names to their primary key
         
         for biller in all_billers:
             email_key = biller.get('email_address', '').lower()
+            company_name = biller.get('full_name', '').strip()
+            
             if not email_key:
                 continue
             
@@ -518,6 +554,46 @@ Example:
             # Filter out empty strings
             source_emails = [e for e in source_emails if e]
             
+            # Check if this company name already exists (case-insensitive)
+            company_name_lower = company_name.lower()
+            if company_name_lower in name_to_key_map:
+                # Merge with existing company under different email
+                existing_key = name_to_key_map[company_name_lower]
+                existing = biller_map[existing_key]
+                
+                print(f"   🔗 Merging duplicate: {company_name} ({email_key} → {existing_key})")
+                
+                # Add this email address if not already in the list
+                new_email = biller.get('email_address', '')
+                if new_email and new_email not in existing['contact_emails']:
+                    existing['contact_emails'].append(new_email)
+                
+                # Merge data (prefer non-empty values)
+                if not existing['full_address'] and biller.get('full_address'):
+                    existing['full_address'] = biller['full_address']
+                if not existing['payment_method'] and biller.get('payment_method'):
+                    existing['payment_method'] = biller['payment_method']
+                if not existing['biller_billing_details'] and biller.get('biller_billing_details'):
+                    existing['biller_billing_details'] = biller['biller_billing_details']
+                if not existing['user_billing_details'] and biller.get('user_billing_details'):
+                    existing['user_billing_details'] = biller['user_billing_details']
+                if not existing['user_account_number'] and biller.get('user_account_number'):
+                    existing['user_account_number'] = biller['user_account_number']
+                if not existing['profile_picture_url'] and biller.get('profile_picture_url'):
+                    existing['profile_picture_url'] = biller['profile_picture_url']
+                if not existing['frequency'] and biller.get('frequency'):
+                    existing['frequency'] = biller['frequency']
+                
+                # Add source emails
+                for email_id in source_emails:
+                    if email_id and email_id not in existing['source_emails']:
+                        existing['source_emails'].append(email_id)
+                
+                if biller.get('email_date') and biller['email_date'] not in existing['email_dates']:
+                    existing['email_dates'].append(biller['email_date'])
+                
+                continue  # Skip to next biller
+            
             if email_key not in biller_map:
                 # Extract domain from email if not provided
                 domain = biller.get('domain', '')
@@ -528,16 +604,22 @@ Example:
                 # New biller
                 biller_map[email_key] = {
                     'full_name': biller.get('full_name', ''),
-                    'email_address': biller.get('email_address', ''),
+                    'contact_emails': [biller.get('email_address', '')],  # Start with array
                     'domain': domain,
                     'profile_picture_url': biller.get('profile_picture_url', ''),
                     'full_address': biller.get('full_address', ''),
                     'payment_method': biller.get('payment_method', ''),
-                    'billing_info': biller.get('billing_info', ''),
+                    'biller_billing_details': biller.get('biller_billing_details', ''),
+                    'user_billing_details': biller.get('user_billing_details', ''),
+                    'user_account_number': biller.get('user_account_number', ''),
                     'frequency': biller.get('frequency', ''),
                     'source_emails': source_emails,
                     'email_dates': [biller.get('email_date', '')] if biller.get('email_date') else []
                 }
+                
+                # Track this company name
+                if company_name_lower:
+                    name_to_key_map[company_name_lower] = email_key
             else:
                 # Merge with existing biller
                 existing = biller_map[email_key]
@@ -547,8 +629,10 @@ Example:
                     existing['full_address'] = biller['full_address']
                 if not existing['payment_method'] and biller.get('payment_method'):
                     existing['payment_method'] = biller['payment_method']
-                if not existing['billing_info'] and biller.get('billing_info'):
-                    existing['billing_info'] = biller['billing_info']
+                if not existing['biller_billing_details'] and biller.get('biller_billing_details'):
+                    existing['biller_billing_details'] = biller['biller_billing_details']
+                if not existing['user_billing_details'] and biller.get('user_billing_details'):
+                    existing['user_billing_details'] = biller['user_billing_details']
                 if not existing['profile_picture_url'] and biller.get('profile_picture_url'):
                     existing['profile_picture_url'] = biller['profile_picture_url']
                 if not existing['frequency'] and biller.get('frequency'):
@@ -570,12 +654,14 @@ Example:
             
             profile = BillerProfile(
                 full_name=data['full_name'],
-                email_address=data['email_address'],
+                contact_emails=data['contact_emails'],
                 domain=data['domain'],
                 profile_picture_url=data['profile_picture_url'],
                 full_address=data['full_address'],
                 payment_method=data['payment_method'],
-                billing_info=data['billing_info'],
+                biller_billing_details=data['biller_billing_details'],
+                user_billing_details=data['user_billing_details'],
+                user_account_number=data['user_account_number'],
                 frequency=data['frequency'],
                 source_emails=data['source_emails'],
                 total_invoices=total_invoices
