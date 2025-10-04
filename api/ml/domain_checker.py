@@ -40,8 +40,7 @@ except Exception:
 # CONFIGURATION AND PATTERNS
 # =============================================================================
 
-# Domain similarity threshold for vendor matching
-VENDOR_MATCH_THRESHOLD = 0.85
+# Vendor matching removed - will be replaced with separate database integration
 
 # Enhanced domain analysis patterns
 SUSPICIOUS_DOMAIN_PATTERNS = [
@@ -281,96 +280,27 @@ def analyze_domain_suspiciousness(domain: str) -> Dict[str, Any]:
 
 
 # =============================================================================
-# VENDOR MATCHING FUNCTIONS
-# =============================================================================
-
-def match_vendor_domain(domain: str, vendor_master: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Match domain against vendor master database.
-    
-    Searches the vendor master database for similar domains and returns
-    matching information with confidence scores.
-    
-    Args:
-        domain (str): Domain to match
-        vendor_master (Dict[str, Any]): Vendor master database
-        
-    Returns:
-        Dict[str, Any]: Matching results containing:
-            - is_matched: Boolean indicating if a match was found
-            - matched_vendor: Vendor information if matched
-            - similarity_score: Similarity score of the best match
-            - confidence: Confidence level in the match
-    """
-    if not domain or not vendor_master:
-        return {
-            "is_matched": False,
-            "matched_vendor": None,
-            "similarity_score": 0.0,
-            "confidence": 0.0
-        }
-    
-    best_match = None
-    best_score = 0.0
-    
-    for vendor_key, vendor_info in vendor_master.items():
-        # Extract domain from vendor info
-        vendor_domain = None
-        if isinstance(vendor_info, dict):
-            vendor_domain = vendor_info.get("domain")
-        else:
-            vendor_domain = vendor_key
-        
-        if not vendor_domain:
-            continue
-        
-        # Calculate similarity
-        similarity = fuzzy_domain_similarity(domain, vendor_domain)
-        
-        if similarity > best_score:
-            best_score = similarity
-            best_match = {
-                "key": vendor_key,
-                "domain": vendor_domain,
-                "info": vendor_info
-            }
-    
-    # Determine if match is strong enough
-    is_matched = best_score >= VENDOR_MATCH_THRESHOLD
-    
-    return {
-        "is_matched": is_matched,
-        "matched_vendor": best_match,
-        "similarity_score": best_score,
-        "confidence": best_score if is_matched else 0.0
-    }
-
-
-# =============================================================================
 # MAIN LEGITIMACY CHECKER
 # =============================================================================
 
 def check_domain_legitimacy(
     email_address: str,
-    vendor_name: Optional[str] = None,
-    vendor_master: Optional[Dict[str, Any]] = None
+    vendor_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Perform comprehensive domain and vendor legitimacy check.
+    Perform domain legitimacy check.
     
-    Analyzes email domain and vendor information to determine
-    if the metadata appears legitimate or suspicious.
+    Analyzes email domain for suspicious characteristics to determine
+    if the domain appears legitimate or suspicious.
     
     Args:
         email_address (str): Email address to analyze
         vendor_name (str, optional): Vendor name from email
-        vendor_master (Dict[str, Any], optional): Vendor master database
         
     Returns:
         Dict[str, Any]: Legitimacy assessment containing:
             - is_legitimate: Boolean indicating overall legitimacy
             - domain_analysis: Domain suspiciousness analysis
-            - vendor_match: Vendor matching results
             - confidence: Overall confidence in the assessment
             - reasons: List of specific issues found
     """
@@ -380,10 +310,7 @@ def check_domain_legitimacy(
     # Analyze domain suspiciousness
     domain_analysis = analyze_domain_suspiciousness(domain)
     
-    # Match against vendor database
-    vendor_match = match_vendor_domain(domain, vendor_master or {})
-    
-    # Bank account validation removed - scammers can easily get valid account numbers
+    # Vendor matching removed - will be replaced with separate database integration
     
     # Determine overall legitimacy
     reasons = []
@@ -396,15 +323,6 @@ def check_domain_legitimacy(
     else:
         confidence_factors.append(domain_analysis["confidence"])
     
-    # Vendor matching
-    if vendor_match["is_matched"]:
-        confidence_factors.append(vendor_match["confidence"])
-    else:
-        reasons.append("vendor_not_found")
-        confidence_factors.append(0.3)  # Moderate concern for unknown vendor
-    
-    # Account validation removed - not useful for fraud detection
-    
     # Calculate overall confidence
     overall_confidence = sum(confidence_factors) / len(confidence_factors) if confidence_factors else 0.5
     
@@ -414,7 +332,6 @@ def check_domain_legitimacy(
     return {
         "is_legitimate": is_legitimate,
         "domain_analysis": domain_analysis,
-        "vendor_match": vendor_match,
         "confidence": overall_confidence,
         "reasons": reasons
     }
@@ -428,22 +345,6 @@ if __name__ == "__main__":
     """
     Example usage of the domain legitimacy checker.
     """
-    
-    # Example vendor master database
-    vendor_master = {
-        "payvendor-example.com": {
-            "domain": "payvendor-example.com",
-            "name": "PayVendor Inc",
-            "last_account": "123456789",
-            "last_amount": 4800.0
-        },
-        "legitimate-supplier.org": {
-            "domain": "legitimate-supplier.org", 
-            "name": "Legitimate Supplier LLC",
-            "last_account": "987654321",
-            "last_amount": 2500.0
-        }
-    }
     
     # Test cases
     test_cases = [
@@ -476,8 +377,7 @@ if __name__ == "__main__":
         
         result = check_domain_legitimacy(
             email_address=test_case["email"],
-            vendor_name=test_case["vendor"],
-            vendor_master=vendor_master
+            vendor_name=test_case["vendor"]
         )
         
         print(f"Legitimate: {result['is_legitimate']}")

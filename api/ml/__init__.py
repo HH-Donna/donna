@@ -72,14 +72,12 @@ from .email_classifier import (
 # Import domain legitimacy checker functions
 from .domain_checker import (
     # Configuration constants
-    VENDOR_MATCH_THRESHOLD,
     SUSPICIOUS_DOMAIN_PATTERNS,
     LEGITIMATE_TLDS,
     SUSPICIOUS_TLDS,
     
     # Analysis functions
     analyze_domain_suspiciousness,
-    match_vendor_domain,
     check_domain_legitimacy,
 )
 
@@ -127,12 +125,10 @@ __all__ = [
     'map_to_decision',
     
     # Domain legitimacy checker
-    'VENDOR_MATCH_THRESHOLD',
     'SUSPICIOUS_DOMAIN_PATTERNS',
     'LEGITIMATE_TLDS',
     'SUSPICIOUS_TLDS',
     'analyze_domain_suspiciousness',
-    'match_vendor_domain',
     'check_domain_legitimacy',
 ]
 
