@@ -76,6 +76,10 @@ from .domain_checker import (
     LEGITIMATE_TLDS,
     SUSPICIOUS_TLDS,
     
+    # Gmail API parsing functions
+    parse_gmail_message,
+    check_gmail_message_legitimacy,
+    
     # Analysis functions
     analyze_domain_suspiciousness,
     check_domain_legitimacy,
@@ -128,6 +132,8 @@ __all__ = [
     'SUSPICIOUS_DOMAIN_PATTERNS',
     'LEGITIMATE_TLDS',
     'SUSPICIOUS_TLDS',
+    'parse_gmail_message',
+    'check_gmail_message_legitimacy',
     'analyze_domain_suspiciousness',
     'check_domain_legitimacy',
 ]

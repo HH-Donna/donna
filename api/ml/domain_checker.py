@@ -17,10 +17,6 @@ Main Components:
 2. Vendor Matching: Compare against known vendor database
 3. Account Validation: Check account number patterns
 4. Legitimacy Assessment: Determine if metadata is trustworthy
-
-Author: Donna Team
-Version: 1.0.0
-License: Proprietary
 """
 
 from __future__ import annotations
@@ -28,6 +24,7 @@ import re
 import unicodedata
 import difflib
 import socket
+import base64
 from typing import Dict, Any, List, Tuple, Optional
 
 # Optional imports for enhanced domain analysis
@@ -67,6 +64,142 @@ SUSPICIOUS_TLDS = {
 }
 
 # Bank account validation removed - scammers can easily get valid account numbers
+
+# =============================================================================
+# GMAIL API PARSING
+# =============================================================================
+
+def parse_gmail_message(gmail_msg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Parse Gmail API message to extract domain analysis data.
+    
+    Extracts email headers, body content, and attachment information
+    from Gmail API message format for domain legitimacy checking.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        
+    Returns:
+        Dict[str, Any]: Parsed message data containing:
+            - from_address: Sender email address
+            - to_address: Recipient email address  
+            - subject: Email subject line
+            - body_text: Combined plain text and HTML content
+            - attachments: List of attachment metadata
+    """
+    if not gmail_msg or "payload" not in gmail_msg:
+        return {
+            "from_address": "",
+            "to_address": "",
+            "subject": "",
+            "body_text": "",
+            "attachments": []
+        }
+    
+    payload = gmail_msg["payload"]
+    headers = {}
+    
+    # Extract headers
+    for header in payload.get("headers", []):
+        headers[header["name"].lower()] = header["value"]
+    
+    # Extract basic email info
+    from_address = headers.get("from", "")
+    to_address = headers.get("to", "")
+    subject = headers.get("subject", "")
+    
+    # Extract body content
+    body_text = ""
+    attachments = []
+    
+    def extract_text_from_parts(parts: List[Dict[str, Any]]):
+        """Recursively extract text content from MIME parts"""
+        nonlocal body_text, attachments
+        
+        for part in parts:
+            mime_type = part.get("mimeType", "")
+            
+            # Extract text content
+            if mime_type in ["text/plain", "text/html"]:
+                body_data = part.get("body", {}).get("data")
+                if body_data:
+                    try:
+                        decoded_text = base64.urlsafe_b64decode(body_data + "==").decode("utf-8")
+                        body_text += decoded_text + "\n"
+                    except Exception:
+                        pass
+            
+            # Extract attachment info
+            elif mime_type.startswith("application/") or mime_type.startswith("image/"):
+                attachment_info = {
+                    "filename": part.get("filename", ""),
+                    "mimeType": mime_type,
+                    "size": part.get("body", {}).get("size", 0),
+                    "attachmentId": part.get("body", {}).get("attachmentId")
+                }
+                attachments.append(attachment_info)
+            
+            # Recursively process nested parts
+            if "parts" in part:
+                extract_text_from_parts(part["parts"])
+    
+    # Process payload parts
+    if "parts" in payload:
+        extract_text_from_parts(payload["parts"])
+    
+    return {
+        "from_address": from_address,
+        "to_address": to_address,
+        "subject": subject,
+        "body_text": body_text.strip(),
+        "attachments": attachments
+    }
+
+
+def check_gmail_message_legitimacy(gmail_msg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Check legitimacy of Gmail message using domain analysis.
+    
+    Parses Gmail API message and performs domain legitimacy checking
+    on the sender's email address.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        
+    Returns:
+        Dict[str, Any]: Legitimacy assessment containing:
+            - is_legitimate: Boolean indicating overall legitimacy
+            - domain_analysis: Domain suspiciousness analysis
+            - confidence: Overall confidence in the assessment
+            - reasons: List of specific issues found
+            - parsed_data: Extracted email data
+    """
+    # Parse Gmail message
+    parsed_data = parse_gmail_message(gmail_msg)
+    
+    # Extract sender email for domain analysis
+    from_address = parsed_data["from_address"]
+    
+    if not from_address:
+        return {
+            "is_legitimate": False,
+            "domain_analysis": {"is_suspicious": True, "reasons": ["no_sender"], "confidence": 1.0},
+            "confidence": 1.0,
+            "reasons": ["no_sender"],
+            "parsed_data": parsed_data
+        }
+    
+    # Perform domain legitimacy check
+    legitimacy_result = check_domain_legitimacy(
+        email_address=from_address,
+        vendor_name=None  # Could extract from subject/body if needed
+    )
+    
+    # Add parsed data to result
+    legitimacy_result["parsed_data"] = parsed_data
+    
+    return legitimacy_result
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -346,7 +479,102 @@ if __name__ == "__main__":
     Example usage of the domain legitimacy checker.
     """
     
-    # Test cases
+    # Example Gmail API message (based on your provided format)
+    gmail_example = {
+        "id": "18c8b0d8cafe1234",
+        "threadId": "18c8b0d8cafe1200",
+        "labelIds": ["INBOX", "UNREAD"],
+        "snippet": "Hi Allen, here's the deck you asked for...",
+        "historyId": "1234567895",
+        "internalDate": "1736012345678",
+        "sizeEstimate": 42876,
+        "payload": {
+            "partId": "",
+            "mimeType": "multipart/mixed",
+            "filename": "",
+            "headers": [
+                {"name": "From", "value": "Jane Doe <jane@example.com>"},
+                {"name": "To", "value": "Allen <allen@yourapp.com>"},
+                {"name": "Subject", "value": "Q4 deck + notes"},
+                {"name": "Date", "value": "Sat, 4 Oct 2025 10:19:05 -0400"},
+                {"name": "Message-Id", "value": "<CAFExyz@example.com>"}
+            ],
+            "body": {"size": 0},
+            "parts": [
+                {
+                    "partId": "1",
+                    "mimeType": "multipart/alternative",
+                    "filename": "",
+                    "headers": [],
+                    "body": {"size": 0},
+                    "parts": [
+                        {
+                            "partId": "1.1",
+                            "mimeType": "text/plain",
+                            "filename": "",
+                            "headers": [{"name": "Content-Type", "value": "text/plain; charset=UTF-8"}],
+                            "body": {
+                                "size": 512,
+                                "data": "SGkgQWxsZW4sCgpIZXJlJ3MgdGhlIGRlay4uLg=="
+                            }
+                        },
+                        {
+                            "partId": "1.2",
+                            "mimeType": "text/html",
+                            "filename": "",
+                            "headers": [{"name": "Content-Type", "value": "text/html; charset=UTF-8"}],
+                            "body": {
+                                "size": 1290,
+                                "data": "PGRpdi5uZXdzaWc+PGI+SGk8L2I+IEFsbGVuLCZuYnNwO2hlcmUmIzM5O3MgdGhlIGRlY2suLi48L2Rpdj4="
+                            }
+                        }
+                    ]
+                },
+                {
+                    "partId": "2",
+                    "mimeType": "application/pdf",
+                    "filename": "Q4-deck.pdf",
+                    "headers": [
+                        {"name": "Content-Disposition", "value": "attachment; filename=\"Q4-deck.pdf\""},
+                        {"name": "Content-Transfer-Encoding", "value": "base64"}
+                    ],
+                    "body": {
+                        "size": 38742,
+                        "attachmentId": "ANGjdJ8kAaBCDEFghiJKLmnoP"
+                    }
+                }
+            ]
+        }
+    }
+    
+    # Test Gmail API parsing
+    print("=" * 60)
+    print("GMAIL API PARSING TEST")
+    print("=" * 60)
+    
+    parsed = parse_gmail_message(gmail_example)
+    print(f"From: {parsed['from_address']}")
+    print(f"To: {parsed['to_address']}")
+    print(f"Subject: {parsed['subject']}")
+    print(f"Body length: {len(parsed['body_text'])} characters")
+    print(f"Attachments: {len(parsed['attachments'])}")
+    for att in parsed['attachments']:
+        print(f"  - {att['filename']} ({att['mimeType']}, {att['size']} bytes)")
+    print()
+    
+    # Test Gmail message legitimacy check
+    print("=" * 60)
+    print("GMAIL MESSAGE LEGITIMACY CHECK")
+    print("=" * 60)
+    
+    result = check_gmail_message_legitimacy(gmail_example)
+    print(f"Legitimate: {result['is_legitimate']}")
+    print(f"Confidence: {result['confidence']:.2f}")
+    if result['reasons']:
+        print(f"Issues: {', '.join(result['reasons'])}")
+    print()
+    
+    # Test cases for direct domain checking
     test_cases = [
         {
             "email": "billing@payvendor-example.com",
