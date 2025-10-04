@@ -74,11 +74,11 @@ from .domain_checker import (
     # Configuration constants
     VENDOR_MATCH_THRESHOLD,
     SUSPICIOUS_DOMAIN_PATTERNS,
-    BANK_ACCOUNT_PATTERNS,
+    LEGITIMATE_TLDS,
+    SUSPICIOUS_TLDS,
     
     # Analysis functions
     analyze_domain_suspiciousness,
-    validate_bank_account,
     match_vendor_domain,
     check_domain_legitimacy,
 )
@@ -129,9 +129,9 @@ __all__ = [
     # Domain legitimacy checker
     'VENDOR_MATCH_THRESHOLD',
     'SUSPICIOUS_DOMAIN_PATTERNS',
-    'BANK_ACCOUNT_PATTERNS',
+    'LEGITIMATE_TLDS',
+    'SUSPICIOUS_TLDS',
     'analyze_domain_suspiciousness',
-    'validate_bank_account',
     'match_vendor_domain',
     'check_domain_legitimacy',
 ]

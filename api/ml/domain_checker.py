@@ -67,12 +67,7 @@ SUSPICIOUS_TLDS = {
     'cc', 'pro', 'mobi',           # Mixed reputation TLDs
 }
 
-# Bank account validation patterns
-BANK_ACCOUNT_PATTERNS = {
-    "generic": r"\b\d{4,20}\b",  # Generic account number
-    "iban": r"\b[A-Z]{2}\d{2}[A-Z0-9]{1,30}\b",  # IBAN format
-    "us_routing": r"\b\d{9}\b",  # US routing number
-}
+# Bank account validation removed - scammers can easily get valid account numbers
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -285,62 +280,6 @@ def analyze_domain_suspiciousness(domain: str) -> Dict[str, Any]:
     }
 
 
-def validate_bank_account(account: str) -> Dict[str, Any]:
-    """
-    Validate bank account number format and patterns.
-    
-    Checks if the account number follows expected patterns for legitimate
-    banking institutions.
-    
-    Args:
-        account (str): Bank account number to validate
-        
-    Returns:
-        Dict[str, Any]: Validation results containing:
-            - is_valid: Boolean indicating if format appears valid
-            - account_type: Detected account type (generic, iban, us_routing)
-            - confidence: Confidence level in the validation
-    """
-    if not account:
-        return {
-            "is_valid": False,
-            "account_type": "none",
-            "confidence": 1.0
-        }
-    
-    account = normalize_text(account)
-    
-    # Check IBAN format
-    if re.match(BANK_ACCOUNT_PATTERNS["iban"], account):
-        return {
-            "is_valid": True,
-            "account_type": "iban",
-            "confidence": 0.9
-        }
-    
-    # Check US routing number
-    if re.match(BANK_ACCOUNT_PATTERNS["us_routing"], account):
-        return {
-            "is_valid": True,
-            "account_type": "us_routing",
-            "confidence": 0.8
-        }
-    
-    # Check generic account number
-    if re.match(BANK_ACCOUNT_PATTERNS["generic"], account):
-        return {
-            "is_valid": True,
-            "account_type": "generic",
-            "confidence": 0.6
-        }
-    
-    return {
-        "is_valid": False,
-        "account_type": "invalid",
-        "confidence": 0.8
-    }
-
-
 # =============================================================================
 # VENDOR MATCHING FUNCTIONS
 # =============================================================================
@@ -414,19 +353,17 @@ def match_vendor_domain(domain: str, vendor_master: Dict[str, Any]) -> Dict[str,
 def check_domain_legitimacy(
     email_address: str,
     vendor_name: Optional[str] = None,
-    bank_account: Optional[str] = None,
     vendor_master: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Perform comprehensive domain and vendor legitimacy check.
     
-    Analyzes email domain, vendor information, and account details to determine
+    Analyzes email domain and vendor information to determine
     if the metadata appears legitimate or suspicious.
     
     Args:
         email_address (str): Email address to analyze
         vendor_name (str, optional): Vendor name from email
-        bank_account (str, optional): Bank account number from email
         vendor_master (Dict[str, Any], optional): Vendor master database
         
     Returns:
@@ -434,7 +371,6 @@ def check_domain_legitimacy(
             - is_legitimate: Boolean indicating overall legitimacy
             - domain_analysis: Domain suspiciousness analysis
             - vendor_match: Vendor matching results
-            - account_validation: Bank account validation results
             - confidence: Overall confidence in the assessment
             - reasons: List of specific issues found
     """
@@ -447,12 +383,7 @@ def check_domain_legitimacy(
     # Match against vendor database
     vendor_match = match_vendor_domain(domain, vendor_master or {})
     
-    # Validate bank account if provided
-    account_validation = validate_bank_account(bank_account) if bank_account else {
-        "is_valid": True,
-        "account_type": "not_provided",
-        "confidence": 0.0
-    }
+    # Bank account validation removed - scammers can easily get valid account numbers
     
     # Determine overall legitimacy
     reasons = []
@@ -472,12 +403,7 @@ def check_domain_legitimacy(
         reasons.append("vendor_not_found")
         confidence_factors.append(0.3)  # Moderate concern for unknown vendor
     
-    # Account validation
-    if not account_validation["is_valid"]:
-        reasons.append("invalid_account_format")
-        confidence_factors.append(1.0 - account_validation["confidence"])
-    else:
-        confidence_factors.append(account_validation["confidence"])
+    # Account validation removed - not useful for fraud detection
     
     # Calculate overall confidence
     overall_confidence = sum(confidence_factors) / len(confidence_factors) if confidence_factors else 0.5
@@ -489,7 +415,6 @@ def check_domain_legitimacy(
         "is_legitimate": is_legitimate,
         "domain_analysis": domain_analysis,
         "vendor_match": vendor_match,
-        "account_validation": account_validation,
         "confidence": overall_confidence,
         "reasons": reasons
     }
@@ -524,23 +449,19 @@ if __name__ == "__main__":
     test_cases = [
         {
             "email": "billing@payvendor-example.com",
-            "vendor": "PayVendor Inc",
-            "account": "123456789"
+            "vendor": "PayVendor Inc"
         },
         {
             "email": "billing@payv3ndor-example.com",  # Suspicious domain
-            "vendor": "PayVendor Inc",
-            "account": "123456789"
+            "vendor": "PayVendor Inc"
         },
         {
             "email": "billing@legitimate-supplier.org",
-            "vendor": "Legitimate Supplier LLC", 
-            "account": "987654321"
+            "vendor": "Legitimate Supplier LLC"
         },
         {
             "email": "billing@suspicious-domain.tk",  # Suspicious TLD
-            "vendor": "Unknown Vendor",
-            "account": "invalid-account"
+            "vendor": "Unknown Vendor"
         }
     ]
     
@@ -552,12 +473,10 @@ if __name__ == "__main__":
         print(f"\nTest Case {i}:")
         print(f"Email: {test_case['email']}")
         print(f"Vendor: {test_case['vendor']}")
-        print(f"Account: {test_case['account']}")
         
         result = check_domain_legitimacy(
             email_address=test_case["email"],
             vendor_name=test_case["vendor"],
-            bank_account=test_case["account"],
             vendor_master=vendor_master
         )
         
