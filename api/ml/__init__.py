@@ -69,6 +69,20 @@ from .email_classifier import (
     map_to_decision,
 )
 
+# Import domain legitimacy checker functions
+from .domain_checker import (
+    # Configuration constants
+    VENDOR_MATCH_THRESHOLD,
+    SUSPICIOUS_DOMAIN_PATTERNS,
+    BANK_ACCOUNT_PATTERNS,
+    
+    # Analysis functions
+    analyze_domain_suspiciousness,
+    validate_bank_account,
+    match_vendor_domain,
+    check_domain_legitimacy,
+)
+
 # Define what gets imported when using "from ml import *"
 __all__ = [
     # Main pipeline
@@ -111,6 +125,15 @@ __all__ = [
     'score_invoice_model',
     'combine_scores',
     'map_to_decision',
+    
+    # Domain legitimacy checker
+    'VENDOR_MATCH_THRESHOLD',
+    'SUSPICIOUS_DOMAIN_PATTERNS',
+    'BANK_ACCOUNT_PATTERNS',
+    'analyze_domain_suspiciousness',
+    'validate_bank_account',
+    'match_vendor_domain',
+    'check_domain_legitimacy',
 ]
 
 # Module metadata
