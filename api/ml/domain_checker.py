@@ -66,6 +66,156 @@ SUSPICIOUS_TLDS = {
 # Bank account validation removed - scammers can easily get valid account numbers
 
 # =============================================================================
+# BILLING EMAIL DETECTION
+# =============================================================================
+
+def is_billing_email(gmail_msg: Dict[str, Any]) -> bool:
+    """
+    Check if a Gmail message is billing/invoice related.
+    
+    Analyzes email subject, body, and sender to determine if it's
+    a billing or invoice email that should be processed for fraud detection.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        
+    Returns:
+        bool: True if email appears to be billing/invoice related
+    """
+    if not gmail_msg or "payload" not in gmail_msg:
+        return False
+    
+    payload = gmail_msg["payload"]
+    headers = {}
+    
+    # Extract headers
+    for header in payload.get("headers", []):
+        headers[header["name"].lower()] = header["value"]
+    
+    # Get email content
+    subject = headers.get("subject", "").lower()
+    from_address = headers.get("from", "").lower()
+    
+    # Extract body text for analysis
+    body_text = ""
+    def extract_text_from_parts(parts: List[Dict[str, Any]]):
+        nonlocal body_text
+        for part in parts:
+            mime_type = part.get("mimeType", "")
+            if mime_type in ["text/plain", "text/html"]:
+                body_data = part.get("body", {}).get("data")
+                if body_data:
+                    try:
+                        decoded_text = base64.urlsafe_b64decode(body_data + "==").decode("utf-8")
+                        body_text += decoded_text.lower() + " "
+                    except Exception:
+                        pass
+            if "parts" in part:
+                extract_text_from_parts(part["parts"])
+    
+    if "parts" in payload:
+        extract_text_from_parts(payload["parts"])
+    
+    # Combine all text for analysis
+    all_text = f"{subject} {body_text}".lower()
+    
+    # Billing/invoice keywords
+    billing_keywords = [
+        # Invoice terms
+        "invoice", "bill", "billing", "statement", "receipt",
+        # Payment terms  
+        "payment", "pay", "due", "overdue", "outstanding",
+        # Amount terms
+        "amount", "total", "subtotal", "tax", "fee", "charge",
+        # Account terms
+        "account", "balance", "debit", "credit", "transaction",
+        # Subscription terms
+        "subscription", "renewal", "monthly", "annual", "recurring",
+        # Service terms
+        "service", "usage", "consumption", "meter", "quota",
+        # Financial terms
+        "financial", "fiscal", "quarterly", "yearly", "period"
+    ]
+    
+    # Check if any billing keywords are present
+    keyword_matches = sum(1 for keyword in billing_keywords if keyword in all_text)
+    
+    # Threshold: at least 2 billing keywords or specific high-confidence terms
+    high_confidence_terms = ["invoice", "bill", "payment due", "statement", "receipt"]
+    has_high_confidence = any(term in all_text for term in high_confidence_terms)
+    
+    # Additional checks
+    has_amount = any(char.isdigit() for char in all_text) and any(word in all_text for word in ["$", "usd", "dollar", "euro", "£", "€"])
+    has_account_info = any(term in all_text for term in ["account number", "routing", "iban", "swift", "wire"])
+    
+    # Decision logic
+    is_billing = (
+        keyword_matches >= 2 or  # Multiple billing keywords
+        has_high_confidence or   # High-confidence terms
+        (keyword_matches >= 1 and (has_amount or has_account_info))  # One keyword + financial details
+    )
+    
+    return is_billing
+
+
+def check_billing_email_legitimacy(gmail_msg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Check if Gmail message is billing-related and analyze domain legitimacy.
+    
+    First filters for billing emails, then performs domain analysis
+    on the sender's email address.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        
+    Returns:
+        Dict[str, Any]: Analysis results containing:
+            - is_billing: Boolean indicating if email is billing-related
+            - is_legitimate: Boolean indicating domain legitimacy (if billing)
+            - domain_analysis: Domain analysis results (if billing)
+            - confidence: Confidence score (if billing)
+            - reasons: List of issues found (if billing)
+            - parsed_data: Extracted email data
+    """
+    # First check if it's a billing email
+    if not is_billing_email(gmail_msg):
+        return {
+            "is_billing": False,
+            "is_legitimate": None,
+            "domain_analysis": None,
+            "confidence": None,
+            "reasons": [],
+            "parsed_data": parse_gmail_message(gmail_msg)
+        }
+    
+    # If it's billing, perform domain analysis
+    parsed_data = parse_gmail_message(gmail_msg)
+    from_address = parsed_data["from_address"]
+    
+    if not from_address:
+        return {
+            "is_billing": True,
+            "is_legitimate": False,
+            "domain_analysis": {"is_suspicious": True, "reasons": ["no_sender"], "confidence": 1.0},
+            "confidence": 1.0,
+            "reasons": ["no_sender"],
+            "parsed_data": parsed_data
+        }
+    
+    # Perform domain legitimacy check
+    legitimacy_result = check_domain_legitimacy(
+        email_address=from_address,
+        vendor_name=None
+    )
+    
+    # Add billing flag and parsed data to result
+    legitimacy_result["is_billing"] = True
+    legitimacy_result["parsed_data"] = parsed_data
+    
+    return legitimacy_result
+
+
+# =============================================================================
 # GMAIL API PARSING
 # =============================================================================
 
@@ -547,31 +697,56 @@ if __name__ == "__main__":
         }
     }
     
-    # Test Gmail API parsing
+    # Test billing email detection
     print("=" * 60)
-    print("GMAIL API PARSING TEST")
+    print("BILLING EMAIL DETECTION TEST")
     print("=" * 60)
     
-    parsed = parse_gmail_message(gmail_example)
-    print(f"From: {parsed['from_address']}")
-    print(f"To: {parsed['to_address']}")
-    print(f"Subject: {parsed['subject']}")
-    print(f"Body length: {len(parsed['body_text'])} characters")
-    print(f"Attachments: {len(parsed['attachments'])}")
-    for att in parsed['attachments']:
-        print(f"  - {att['filename']} ({att['mimeType']}, {att['size']} bytes)")
+    # Test non-billing email (current example)
+    is_billing = is_billing_email(gmail_example)
+    print(f"Non-billing email (Q4 deck): {is_billing}")
+    
+    # Test billing email
+    billing_example = {
+        "id": "billing123",
+        "payload": {
+            "headers": [
+                {"name": "From", "value": "billing@paypal.com"},
+                {"name": "Subject", "value": "Your PayPal invoice #12345"}
+            ],
+            "parts": [
+                {
+                    "mimeType": "text/plain",
+                    "body": {"data": "SGVsbG8sCgpZb3VyIGludm9pY2UgZm9yICQ1MC4wMCBpcyBkdWUuCgpQbGVhc2UgcGF5IGF0IHlvdXIgZWFybGllc3QgY29udmVuaWVuY2Uu"}
+                }
+            ]
+        }
+    }
+    
+    is_billing_invoice = is_billing_email(billing_example)
+    print(f"Billing email (PayPal invoice): {is_billing_invoice}")
     print()
     
-    # Test Gmail message legitimacy check
+    # Test complete billing analysis
     print("=" * 60)
-    print("GMAIL MESSAGE LEGITIMACY CHECK")
+    print("COMPLETE BILLING ANALYSIS TEST")
     print("=" * 60)
     
-    result = check_gmail_message_legitimacy(gmail_example)
-    print(f"Legitimate: {result['is_legitimate']}")
-    print(f"Confidence: {result['confidence']:.2f}")
-    if result['reasons']:
-        print(f"Issues: {', '.join(result['reasons'])}")
+    # Test non-billing email
+    result_non_billing = check_billing_email_legitimacy(gmail_example)
+    print(f"Non-billing email:")
+    print(f"  Is billing: {result_non_billing['is_billing']}")
+    print(f"  Analysis: {'Skipped' if not result_non_billing['is_billing'] else 'Performed'}")
+    print()
+    
+    # Test billing email
+    result_billing = check_billing_email_legitimacy(billing_example)
+    print(f"Billing email:")
+    print(f"  Is billing: {result_billing['is_billing']}")
+    print(f"  Legitimate: {result_billing['is_legitimate']}")
+    print(f"  Confidence: {result_billing['confidence']:.2f}")
+    if result_billing['reasons']:
+        print(f"  Issues: {', '.join(result_billing['reasons'])}")
     print()
     
     # Test cases for direct domain checking
