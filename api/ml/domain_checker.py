@@ -81,6 +81,10 @@ def initialize_gemini():
     if not genai:
         return None
     
+    # Load environment variables from .env.local
+    from dotenv import load_dotenv
+    load_dotenv('.env.local')
+    
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("Warning: GEMINI_API_KEY not found in environment variables")
@@ -88,7 +92,7 @@ def initialize_gemini():
     
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         return model
     except Exception as e:
         print(f"Warning: Failed to initialize Gemini: {e}")
