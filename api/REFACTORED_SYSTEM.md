@@ -11,28 +11,28 @@ The system has been refactored into **4 distinct functions** with better names a
 - **Input**: Gmail message JSON
 - **Output**: Boolean (true if billing-related)
 - **Use Case**: Quick filter before expensive AI analysis
-- **Logging**: None (rule-based only)
+- **Performance**: ~1ms
 
 ### **2. `classify_email_type_with_gemini(gmail_msg, user_uuid, fraud_logger)` - AI Classification**
 - **Purpose**: Use Gemini AI to classify email type (bill vs receipt vs other)
 - **Input**: Gmail message JSON, user UUID, fraud logger
 - **Output**: Classification results with confidence and reasoning
 - **Use Case**: Determine if email is actually billing-related and what type
-- **Logging**: Logs Gemini analysis decision
+- **Performance**: ~2-3 seconds
 
 ### **3. `analyze_domain_legitimacy(gmail_msg, email_type, user_uuid, fraud_logger)` - Domain Analysis**
 - **Purpose**: Analyze sender domain legitimacy for billing emails
 - **Input**: Gmail message JSON, email type, user UUID, fraud logger
 - **Output**: Domain analysis results with legitimacy decision
 - **Use Case**: Check if sender domain is legitimate or suspicious
-- **Logging**: Logs domain analysis decision
+- **Performance**: ~500ms
 
 ### **4. `check_billing_email_legitimacy(gmail_msg, user_uuid, fraud_logger)` - Complete Pipeline**
 - **Purpose**: Orchestrates the complete fraud detection pipeline
 - **Input**: Gmail message JSON, user UUID, fraud logger
 - **Output**: Complete analysis results with all decisions
 - **Use Case**: Main function for complete fraud detection
-- **Logging**: Logs all decisions (Gemini + Domain + Final)
+- **Performance**: ~3-4 seconds total
 
 ## 🔄 **Decision Flow**
 
