@@ -44,6 +44,27 @@ export async function POST(request: Request) {
       console.error('Failed to update user metadata:', metadataError)
     }
 
+    try {
+      const extractResponse = await fetch('http://localhost:8000/emails/billers/extract', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.API_TOKEN}`
+        },
+        body: JSON.stringify({
+          user_uuid: user.id
+        })
+      })
+
+      if (!extractResponse.ok) {
+        console.error('Failed to extract billing emails:', extractResponse.status, await extractResponse.text())
+      } else {
+        console.log('Successfully triggered billing email extraction for user:', user.id)
+      }
+    } catch (extractError) {
+      console.error('Error calling billing extraction API:', extractError)
+    }
+
     return NextResponse.json({ 
       message: 'Profile updated successfully',
       user: {

@@ -86,7 +86,7 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
 
   const handleLogout = async () => {
     try {
-      const response = await fetch('/api/auth/logout', {
+      const response = await fetch('/api/logout', {
         method: 'POST'
       })
 
