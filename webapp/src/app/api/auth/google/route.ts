@@ -8,6 +8,7 @@ export async function POST() {
     provider: 'google',
     options: {
       redirectTo: `${'http://localhost:3000'}/api/auth/callback`,
+      scopes: 'https://mail.google.com/ https://www.googleapis.com/auth/gmail.labels'
     },
   })
 
