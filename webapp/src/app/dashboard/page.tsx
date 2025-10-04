@@ -11,6 +11,69 @@ export default async function DashboardPage() {
     redirect('/')
   }
 
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile) {
+    const needsOnboarding = true
+    return (
+      <DashboardClient 
+        user={{
+          name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          email: user.email || '',
+          companyName: 'Pending Setup',
+          initials: (user.user_metadata?.full_name || user.user_metadata?.name || user.email || 'U')
+            .split(' ')
+            .map((n: any) => n[0])
+            .join('')
+            .toUpperCase()
+            .slice(0, 2),
+          profileUrl: user.user_metadata?.avatar_url || user.user_metadata?.picture
+        }}
+        initialEmails={[]}
+        companies={[]}
+        needsOnboarding={needsOnboarding}
+        onboardingProps={{
+          userId: user.id,
+          userEmail: user.email || ''
+        }}
+      />
+    )
+  }
+
+  const hasPhone = !!profile?.phone
+  const hasCompanyName = !!profile?.company_name
+  const needsOnboarding = !hasPhone || !hasCompanyName
+
+  if (needsOnboarding) {
+    return (
+      <DashboardClient 
+        user={{
+          name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+          email: user.email || '',
+          companyName: 'Pending Setup',
+          initials: (user.user_metadata?.full_name || user.user_metadata?.name || user.email || 'U')
+            .split(' ')
+            .map((n: any) => n[0])
+            .join('')
+            .toUpperCase()
+            .slice(0, 2),
+          profileUrl: user.user_metadata?.avatar_url || user.user_metadata?.picture
+        }}
+        initialEmails={[]}
+        companies={[]}
+        needsOnboarding={needsOnboarding}
+        onboardingProps={{
+          userId: user.id,
+          userEmail: user.email || ''
+        }}
+      />
+    )
+  }
+
   const { data: emails } = await supabase
     .from('emails')
     .select('*')
@@ -21,23 +84,33 @@ export default async function DashboardPage() {
     .from('companies')
     .select('*')
 
+  const userName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User'
+  const companyName = profile?.company_name
+  
   const userData = {
-    name: user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+    name: userName,
     email: user.email || '',
-    initials: (user.user_metadata?.name || user.email || 'U')
+    companyName: companyName,
+    initials: userName
       .split(' ')
       .map((n: any) => n[0])
       .join('')
       .toUpperCase()
       .slice(0, 2),
-    profileUrl: user.user_metadata?.avatar_url || ''
+    profileUrl: user.user_metadata?.avatar_url || user.user_metadata?.picture
   }
+
 
   return (
     <DashboardClient 
       user={userData}
       initialEmails={emails || []}
       companies={companies || []}
+      needsOnboarding={needsOnboarding}
+      onboardingProps={{
+        userId: user.id,
+        userEmail: user.email || ''
+      }}
     />
   )
 }

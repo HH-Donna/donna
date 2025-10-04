@@ -5,23 +5,30 @@ import { useRouter } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Mail, TrendingUp } from 'lucide-react'
 import DashboardNav from '../components/DashboardNav'
-import LegitimateBillers from '../components/LegitimateBillers'
-import EmailSearch from '../components/EmailSearch'
 import EmailList from '../components/EmailList'
+import EmailSearch from '../components/EmailSearch'
 import Analytics from '../components/Analytics'
+import LegitimateBillers from '../components/LegitimateBillers'
+import OnboardingForm from '../components/OnboardingForm'
 
 interface DashboardClientProps {
   user: {
     name: string
     email: string
+    companyName: string
     initials: string
     profileUrl?: string
   }
   initialEmails: any[]
   companies: any[]
+  needsOnboarding: boolean
+  onboardingProps: {
+    userId: string
+    userEmail: string
+  }
 }
 
-export default function DashboardClient({ user, initialEmails, companies }: DashboardClientProps) {
+export default function DashboardClient({ user, initialEmails, companies, needsOnboarding, onboardingProps }: DashboardClientProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('emails')
   const [searchQuery, setSearchQuery] = useState('')
@@ -99,7 +106,6 @@ export default function DashboardClient({ user, initialEmails, companies }: Dash
   const handleFilterClick = () => {
     console.log('Filter clicked')
   }
-
   const filteredEmails = emails.filter(email => 
     email.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
     email.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -130,9 +136,8 @@ export default function DashboardClient({ user, initialEmails, companies }: Dash
           </TabsList>
 
           <TabsContent value="emails" className="space-y-6">
-            {legitimateBillers.length == 0 && (
-              <LegitimateBillers billers={legitimateBillers} />
-            )}
+            
+            <LegitimateBillers billers={legitimateBillers} />
             <EmailSearch 
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
@@ -151,6 +156,14 @@ export default function DashboardClient({ user, initialEmails, companies }: Dash
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Onboarding Modal Overlay */}
+      {needsOnboarding && (
+        <OnboardingForm 
+          userId={onboardingProps.userId}
+          userEmail={onboardingProps.userEmail}
+        />
+      )}
     </div>
   )
 }

@@ -5,6 +5,7 @@ interface DashboardNavProps {
   user: {
     name: string
     email: string
+    companyName: string
     initials: string
     profileUrl?: string
   }
@@ -30,7 +31,9 @@ export default function DashboardNav({ user, onLogout }: DashboardNavProps) {
                 </div>
             )}
             <div className="text-sm">
-              <p className="font-medium text-gray-900">{user.name}</p>
+              <div className='flex items-center space-x-2'>
+                <p className="font-medium text-gray-900">{user.name} from {user.companyName}</p>
+              </div>
               <p className="text-gray-500">{user.email}</p>
             </div>
           </div>

@@ -14,19 +14,15 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${requestUrl.origin}?error=${error.message}`)
     }
 
-    // If authentication was successful and we have session data
     if (data?.session?.user) {
       const user = data.session.user
       const session = data.session
       
-      // Extract OAuth tokens from the session
       const providerToken = session.provider_token
       const providerRefreshToken = session.provider_refresh_token
       
-      // Check if we have Gmail-related scopes
       const scopes = session.provider_token ? ['https://mail.google.com/', 'https://www.googleapis.com/auth/gmail.labels'] : []
       
-      // Store OAuth tokens in our backend if we have them
       if (providerToken && user.id) {
         try {
           const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/oauth/store`, {
@@ -41,7 +37,7 @@ export async function GET(request: Request) {
               access_token: providerToken,
               refresh_token: providerRefreshToken || '',
               scopes: scopes,
-              expires_in: 3600 // Default 1 hour
+              expires_in: 3600 
             })
           })
           
