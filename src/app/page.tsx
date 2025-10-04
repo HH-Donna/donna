@@ -1,4 +1,5 @@
 import Image from "next/image";
+import GoogleAuthButton from "./components/GoogleAuthButton";
 
 export default function Home() {
   return (
@@ -24,6 +25,14 @@ export default function Home() {
             Save and see your changes instantly.
           </li>
         </ol>
+
+        {/* Google Authentication Section */}
+        <div className="w-full max-w-md mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-center mb-4 text-gray-800 dark:text-gray-200">
+            Authentication Test
+          </h2>
+          <GoogleAuthButton />
+        </div>
 
         <div className="flex gap-4 items-center flex-col sm:flex-row">
           <a
