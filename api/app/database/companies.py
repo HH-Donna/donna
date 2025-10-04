@@ -12,26 +12,10 @@ async def save_biller_to_companies(user_uuid: str, biller: BillerProfile) -> dic
     supabase = get_supabase_client()
     
     try:
-        # Parse dates
-        first_invoice_date = None
-        last_invoice_date = None
-        
-        if biller.first_seen:
-            try:
-                # Try to parse the date
-                from email.utils import parsedate_to_datetime
-                first_invoice_date = parsedate_to_datetime(biller.first_seen).isoformat()
-            except:
-                first_invoice_date = None
-        
-        if biller.last_seen:
-            try:
-                from email.utils import parsedate_to_datetime
-                last_invoice_date = parsedate_to_datetime(biller.last_seen).isoformat()
-            except:
-                last_invoice_date = None
-        
         # Prepare data for insert/update
+        # Calculate total_invoices from source_emails array
+        total_invoices = len([e for e in biller.source_emails if e]) if biller.source_emails else 0
+        
         company_data = {
             'user_id': user_uuid,
             'name': biller.full_name,
@@ -42,12 +26,12 @@ async def save_biller_to_companies(user_uuid: str, biller: BillerProfile) -> dic
             'payment_method': biller.payment_method,
             'billing_info': biller.billing_info,
             'frequency': biller.frequency,
-            'first_invoice_date': first_invoice_date,
-            'last_invoice_date': last_invoice_date,
-            'total_invoices': biller.total_invoices,
+            'total_invoices': total_invoices,
             'source_email_ids': biller.source_emails,
             'updated_at': datetime.now().isoformat()
         }
+        
+        print(f"   📊 {biller.full_name}: {total_invoices} invoices from {len(biller.source_emails)} email IDs")
         
         # Use upsert to insert or update
         # Note: Supabase Python client doesn't support on_conflict parameter the same way

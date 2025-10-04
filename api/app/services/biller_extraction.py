@@ -348,6 +348,8 @@ Return ONLY valid JSON array (no markdown, no explanation):
             billers_data = json.loads(json_text)
             billers = []
             
+            print(f"   🔍 AI returned {len(billers_data)} billers")
+            
             for biller_item in billers_data:
                 # Convert email indices to actual email IDs
                 source_indices = biller_item.get('source_email_ids', [])
@@ -357,6 +359,10 @@ Return ONLY valid JSON array (no markdown, no explanation):
                     for idx in source_indices:
                         if isinstance(idx, int) and idx < len(emails):
                             source_email_ids.append(emails[idx].get('id', ''))
+                
+                # Debug: Show what AI returned
+                if not source_email_ids:
+                    print(f"      ⚠️  No email IDs for {biller_item.get('full_name')} - AI returned: {source_indices}")
                 
                 # Extract domain if not provided
                 domain = biller_item.get('domain', '')
@@ -377,6 +383,10 @@ Return ONLY valid JSON array (no markdown, no explanation):
                     'email_date': biller_item.get('latest_date', ''),
                     'all_source_emails': source_email_ids
                 }
+                
+                # Debug: Print invoice count
+                print(f"      📧 {biller['full_name']}: {len(source_email_ids)} email IDs mapped")
+                
                 billers.append(biller)
             
             return billers
@@ -555,8 +565,8 @@ Example:
         # Convert to BillerProfile objects
         profiles = []
         for email_addr, data in biller_map.items():
-            # Sort dates to find first and last seen
-            dates = sorted([d for d in data['email_dates'] if d])
+            # Calculate total invoices from source_emails
+            total_invoices = len([e for e in data['source_emails'] if e])
             
             profile = BillerProfile(
                 full_name=data['full_name'],
@@ -568,13 +578,11 @@ Example:
                 billing_info=data['billing_info'],
                 frequency=data['frequency'],
                 source_emails=data['source_emails'],
-                first_seen=dates[0] if dates else '',
-                last_seen=dates[-1] if dates else '',
-                total_invoices=len(data['source_emails'])
+                total_invoices=total_invoices
             )
             profiles.append(profile)
         
-        # Sort by most recent invoice
-        profiles.sort(key=lambda p: p.last_seen, reverse=True)
+        # Sort by total invoices (most active billers first)
+        profiles.sort(key=lambda p: p.total_invoices, reverse=True)
         
         return profiles

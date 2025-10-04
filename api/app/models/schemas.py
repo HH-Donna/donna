@@ -56,8 +56,6 @@ class BillerProfile(BaseModel):
     billing_info: str = ""  # Bank details, account numbers, etc.
     frequency: str = ""  # Detected billing frequency (e.g., "Monthly", "Weekly", "One-time")
     source_emails: list[str] = []  # Email IDs where this biller was found (unique invoices only)
-    first_seen: str = ""  # Date of first invoice
-    last_seen: str = ""  # Date of most recent invoice
     total_invoices: int = 0  # Count of unique invoices (excludes drafts/adjustments)
 
 
