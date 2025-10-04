@@ -76,6 +76,10 @@ from .domain_checker import (
     LEGITIMATE_TLDS,
     SUSPICIOUS_TLDS,
     
+    # Gemini AI functions
+    initialize_gemini,
+    analyze_email_with_gemini,
+    
     # Billing email detection functions
     is_billing_email,
     check_billing_email_legitimacy,
@@ -136,6 +140,8 @@ __all__ = [
     'SUSPICIOUS_DOMAIN_PATTERNS',
     'LEGITIMATE_TLDS',
     'SUSPICIOUS_TLDS',
+    'initialize_gemini',
+    'analyze_email_with_gemini',
     'is_billing_email',
     'check_billing_email_legitimacy',
     'parse_gmail_message',
