@@ -139,7 +139,7 @@ export default function OnboardingForm({ userId, userEmail }: OnboardingFormProp
 
             <Button
               type="submit"
-              className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+              className="w-full bg-[#C15F3C] hover:bg-amber-600 text-white"
               disabled={isLoading}
             >
               {isLoading ? 'Saving...' : 'Continue to Dashboard'}

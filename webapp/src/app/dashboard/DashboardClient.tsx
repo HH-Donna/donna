@@ -2,17 +2,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Mail, TrendingUp, Bell } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { DollarSign, ShieldCheck, Phone } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
 import DashboardNav from '../components/DashboardNav'
 import EmailList from '../components/EmailList'
 import EmailSearch from '../components/EmailSearch'
-import Analytics from '../components/Analytics'
 import LegitimateBillers from '../components/LegitimateBillers'
 import OnboardingForm from '../components/OnboardingForm'
 import { useEmailNotifications } from '../hooks/useEmailNotifications'
-import { Card } from '@/components/ui/card'
 
 
 interface DashboardClientProps {
@@ -34,10 +31,34 @@ interface DashboardClientProps {
 
 export default function DashboardClient({ user, initialEmails, companies, needsOnboarding, onboardingProps }: DashboardClientProps) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState('emails')
   const [searchQuery, setSearchQuery] = useState('')
   
   const { newEmailCount, latestEmails, clearNotifications } = useEmailNotifications(onboardingProps.userId)
+
+  // Calculate metrics from email data
+  const calculateMetrics = () => {
+    // Calculate total money saved from fraudulent and unsure emails
+    const totalMoneySaved = initialEmails
+      .filter(email => email.label === 'fraudulent' || email.label === 'unsure')
+      .reduce((sum, email) => sum + (email.amount || 0), 0)
+
+    // Count total avoided scams (fraudulent + unsure emails)
+    const totalAvoidedScams = initialEmails.filter(
+      email => email.label === 'fraudulent' || email.label === 'unsure'
+    ).length
+
+    // Calculate calls made in the past week
+    // For now, using mock data - in production, this would come from a calls table
+    const callsMadeThisWeek = 18
+
+    return {
+      totalMoneySaved,
+      totalAvoidedScams,
+      callsMadeThisWeek
+    }
+  }
+
+  const metrics = calculateMetrics()
 
   const legitimateBillers = companies.map((company: any) => ({
     id: company.id || company.name,
@@ -67,41 +88,9 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
     company: email.company_id || 'Unknown', 
     status: email.status as 'flagged' | 'resolved' | 'pending',
     received_at: email.received_at || new Date().toISOString(),
-    label: email.label || ''
+    label: email.label || '',
+    amount: email.amount || 0
   }))
-
-  const stats = {
-    totalEmails: initialEmails.length,
-    flagged: initialEmails.filter(e => e.status === 'flagged').length,
-    agentCalls: 18, 
-    resolved: initialEmails.filter(e => e.status === 'resolved').length,
-    successRate: initialEmails.length > 0 
-      ? Math.round((initialEmails.filter(e => e.status === 'resolved').length / initialEmails.length) * 100)
-      : 0
-  }
-
-  const emailTrendData = [
-    { month: 'Jul', emails: 45 },
-    { month: 'Aug', emails: 52 },
-    { month: 'Sep', emails: 61 },
-    { month: 'Oct', emails: 89 }
-  ]
-
-  const statusData = [
-    { name: 'Resolved', value: stats.resolved, color: '#374151' },
-    { name: 'Flagged', value: stats.flagged, color: '#f59e0b' },
-    { name: 'Pending', value: stats.totalEmails - stats.resolved - stats.flagged, color: '#9ca3af' }
-  ]
-
-  const callsData = [
-    { day: 'Mon', calls: 3 },
-    { day: 'Tue', calls: 2 },
-    { day: 'Wed', calls: 4 },
-    { day: 'Thu', calls: 5 },
-    { day: 'Fri', calls: 2 },
-    { day: 'Sat', calls: 1 },
-    { day: 'Sun', calls: 1 }
-  ]
 
   const handleLogout = async () => {
     try {
@@ -125,6 +114,7 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
   const handleFilterClick = () => {
     console.log('Filter clicked')
   }
+
   const filteredEmails = processedEmails.filter((email: any) => 
     email.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
     email.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -132,62 +122,91 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
   )
 
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div className="min-h-screen bg-gray-50">
       <DashboardNav user={user} onLogout={handleLogout} />
 
-      <div className="container mx-auto px-6 py-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-white border border-gray-200">
-            <TabsTrigger
-              value="emails" 
-              className="data-[state=active]:bg-amber-500 data-[state=active]:text-white transition-all duration-250 cursor-pointer"
-              onClick={() => {
-                if (activeTab === 'emails') clearNotifications()
-              }}
-            >
-              <div className="flex items-center">
-                <Mail className="h-4 w-4 mr-2" />
-                Emails
-                {newEmailCount > 0 && (
-                  <Badge variant="destructive" className="ml-2 text-xs px-2 py-1">
-                    {newEmailCount}
-                  </Badge>
-                )}
+      <div className="container mx-auto py-8">
+        {/* Metrics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 px-6">
+          {/* Total Money Saved */}
+          <Card className="bg-white border-gray-300 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Total Money Saved</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">
+                    £{metrics.totalMoneySaved.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">From blocked fraudulent emails</p>
+                </div>
+                <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                  <DollarSign className="h-5 w-5 text-green-600" />
+                </div>
               </div>
-            </TabsTrigger>
-            <TabsTrigger 
-              value="analytics" 
-              className="data-[state=active]:bg-amber-500 data-[state=active]:text-white  transition-all duration-250 cursor-pointer"
-            >
-              <TrendingUp className="h-4 w-4 mr-2" />
-              Analytics
-            </TabsTrigger>
-          </TabsList>
+            </CardContent>
+          </Card>
 
-          <TabsContent value="emails" className="space-y-6">
-            <LegitimateBillers 
-              key="persistent-billers" 
-              billers={legitimateBillers} 
-            />
-            <Card className="border-gray-200">
+          {/* Total Avoided Scams */}
+          <Card className="bg-white border-gray-300 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Total Avoided Scams</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">
+                    {metrics.totalAvoidedScams}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">Fraudulent attempts blocked</p>
+                </div>
+                <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <ShieldCheck className="h-5 w-5 text-amber-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Calls Made This Week */}
+          <Card className="bg-white border-gray-300 shadow-sm hover:shadow-md transition-shadow duration-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Calls Made This Week</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">
+                    {metrics.callsMadeThisWeek}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">By Donna AI assistant</p>
+                </div>
+                <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                  <Phone className="h-5 w-5 text-blue-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 ">
+          {/* Left: Emails (2/3 width) */}
+          <div className="lg:col-span-2 space-y-4">
+            <div className="mx-6">
+              <h2 className="text-lg font-bold text-gray-900 tracking-tight mb-2">Emails</h2>
+              <p className="text-sm text-gray-600 -mt-2 mb-4">Recent email activity and fraud detection</p>
+            </div>
             <EmailSearch 
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               onFilterClick={handleFilterClick}
             />
             <EmailList emails={filteredEmails} onEmailClick={handleEmailClick} />
-            </Card>
-          </TabsContent>
+          </div>
 
-          <TabsContent value="analytics">
-            <Analytics
-              stats={stats}
-              emailTrendData={emailTrendData}
-              statusData={statusData}
-              callsData={callsData}
+          {/* Right: Legitimate Billers (1/3 width) */}
+          <div className="lg:col-span-1 space-y-4">
+            <LegitimateBillers 
+              key="persistent-billers" 
+              billers={legitimateBillers} 
             />
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
       </div>
 
       {/* Onboarding Modal Overlay */}

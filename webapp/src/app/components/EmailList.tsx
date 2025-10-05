@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -18,17 +18,42 @@ interface EmailListProps {
   onEmailClick?: (email: Email) => void
 }
 
+// Component for expandable content with smooth animation
+function ExpandableContent({ isExpanded, children }: { isExpanded: boolean; children: React.ReactNode }) {
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState(0)
+
+  useEffect(() => {
+    if (contentRef.current) {
+      setHeight(isExpanded ? contentRef.current.scrollHeight : 0)
+    }
+  }, [isExpanded, children])
+
+  return (
+    <div 
+      className="overflow-hidden transition-all duration-300 ease-in-out"
+      style={{ height: `${height}px` }}
+    >
+      <div ref={contentRef}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export default function EmailList({ emails, onEmailClick }: EmailListProps) {
   const [expandedEmails, setExpandedEmails] = useState<Set<number>>(new Set())
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    switch (status.toLowerCase()) {
+      case 'processed':
+        return 'bg-gray-600 text-white'
       case 'flagged':
-        return 'bg-amber-500 text-white'
+        return 'bg-red-500 text-white'
       case 'resolved':
-        return 'bg-green-500 text-white'
+        return 'bg-emerald-500 text-white'
       case 'pending':
-        return 'bg-yellow-500 text-white'
+        return 'bg-amber-500 text-white'
       default:
         return 'bg-gray-500 text-white'
     }
@@ -36,14 +61,28 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
 
   const getLabelColor = (label: string) => {
     switch (label.toLowerCase()) {
+      // Fraud detection labels
+      case 'safe':
+        return 'bg-green-500 text-white'
+      case 'unsure':
+        return 'bg-amber-500 text-white'
+      case 'fraudulent':
+        return 'bg-red-500 text-white'
+      // Email type labels  
       case 'invoice':
-        return 'bg-blue-100 text-blue-700 border-blue-200'
+        return 'bg-blue-500 text-white'
       case 'wire transfer':
-        return 'bg-purple-100 text-purple-700 border-purple-200'
+        return 'bg-purple-500 text-white'
       case 'payment':
-        return 'bg-indigo-100 text-indigo-700 border-indigo-200'
+        return 'bg-indigo-500 text-white'
+      case 'bank details':
+        return 'bg-pink-500 text-white'
+      case 'account update':
+        return 'bg-orange-500 text-white'
+      case 'billing':
+        return 'bg-teal-500 text-white'
       default:
-        return 'bg-gray-100 text-gray-700 border-gray-200'
+        return 'bg-gray-500 text-white'
     }
   }
 
@@ -66,8 +105,7 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
     }
   }
 
-  const toggleExpanded = (emailId: number, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const toggleExpanded = (emailId: number) => {
     setExpandedEmails(prev => {
       const newSet = new Set(prev)
       if (newSet.has(emailId)) {
@@ -77,74 +115,108 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
       }
       return newSet
     })
+    
+    // Call onEmailClick when expanding (optional - remove if not needed)
+    const email = emails.find(e => e.id === emailId)
+    if (email && !expandedEmails.has(emailId)) {
+      onEmailClick?.(email)
+    }
   }
 
   return (
-    <div className="space-y-2 mx-6">
+    <div className="space-y-2 mx-6 mb-6">
       {emails.map((email) => {
         const isExpanded = expandedEmails.has(email.id)
         
         return (
           <div
             key={email.id}
-            className="bg-white border border-gray-200 rounded-lg hover:shadow-sm transition-all"
+            className="bg-white border border-gray-300 rounded-lg hover:shadow-md hover:border-gray-400 transition-all duration-200"
           >
             <div
-              className="flex items-center justify-between p-3 cursor-pointer"
-              onClick={() => onEmailClick?.(email)}
+              className="flex items-center p-4 cursor-pointer group"
+              onClick={() => toggleExpanded(email.id)}
             >
               {/* Left: Subject and Sender */}
               <div className="flex-1 min-w-0 mr-4">
-                <p className="font-medium text-sm text-gray-900 truncate">{email.subject}</p>
-                <p className="text-xs text-gray-500 mt-0.5">From: {email.sender}</p>
+                <p className="font-semibold text-[15px] text-gray-900 truncate leading-tight">
+                  {email.subject}
+                </p>
+                <p className="text-xs text-gray-600 mt-1 font-medium">
+                  {email.sender}
+                </p>
               </div>
 
-              {/* Center: Status and Label */}
-              <div className="flex items-center gap-2 mr-4">
-                <Badge className={`${getStatusColor(email.status)} text-xs px-2 py-0.5 border-0`}>
-                  {email.status}
-                </Badge>
-                <Badge variant="outline" className={`${getLabelColor(email.label)} text-xs px-2 py-0.5`}>
-                  {email.label}
-                </Badge>
+              {/* Center: Status and Label - Fixed Width */}
+              <div className="flex items-center gap-4 mr-6">
+                <div className="w-24 flex justify-end">
+                  <Badge 
+                    className={`${getStatusColor(email.status)} text-xs px-3 py-1 font-medium border-0 shadow-sm`}
+                  >
+                    {email.status.charAt(0).toUpperCase() + email.status.slice(1)}
+                  </Badge>
+                </div>
+                <div className="w-32 flex justify-start">
+                  <Badge 
+                    className={`${getLabelColor(email.label)} text-xs px-3 py-1 font-semibold border-0 shadow-sm`}
+                  >
+                    {email.label.charAt(0).toUpperCase() + email.label.slice(1)}
+                  </Badge>
+                </div>
               </div>
 
-              {/* Right: Time and Chevron */}
+              {/* Right: Time and Chevron - Fixed Width */}
               <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-500 whitespace-nowrap">
+                <span className="text-xs text-gray-600 font-medium whitespace-nowrap w-16 text-right">
                   {formatDate(email.received_at)}
                 </span>
-                <button
-                  onClick={(e) => toggleExpanded(email.id, e)}
-                  className="p-1 hover:bg-gray-100 rounded transition-colors"
-                  aria-label={isExpanded ? "Collapse" : "Expand"}
-                >
-                  {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-gray-400" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 text-gray-400" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Expanded Content */}
-            {isExpanded && (
-              <div className="px-3 pb-3 pt-0 border-t border-gray-100">
-                <div className="mt-3 space-y-2">
-                  <div className="text-sm text-gray-600">
-                    <span className="font-medium">Company:</span> {email.company}
-                  </div>
-                  <div className="text-sm text-gray-600">
-                    <span className="font-medium">Full timestamp:</span> {new Date(email.received_at).toLocaleString()}
-                  </div>
-                  <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded">
-                    <p className="font-medium mb-1">Email Preview:</p>
-                    <p className="text-gray-600 line-clamp-3">{email.body}</p>
+                <div className="p-1.5 rounded-lg group-hover:bg-gray-100 transition-colors">
+                  <div className={`transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+                    <ChevronRight className="h-4 w-4 text-gray-600" 
+                      style={{
+                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.3s ease'
+                      }}
+                    />
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+
+            {/* Expanded Content with Animation */}
+            <ExpandableContent isExpanded={isExpanded}>
+              <div className="px-4 pb-4">
+                <div className="border-t border-gray-200 pt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Company</span>
+                    <span className="text-sm text-gray-900 font-medium">{email.company}</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Received</span>
+                    <span className="text-sm text-gray-900 font-medium">
+                      {new Date(email.received_at).toLocaleString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                      })}
+                    </span>
+                  </div>
+                  
+                  <div className="pt-2">
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Preview</span>
+                    <div className="mt-2 p-3 bg-gray-100 rounded-lg">
+                      <p className="text-sm text-gray-800 leading-relaxed line-clamp-3">
+                        {email.body}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </ExpandableContent>
           </div>
         )
       })}
