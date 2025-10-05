@@ -11,8 +11,8 @@ if not API_TOKEN:
     print("Warning: API_TOKEN environment variable is required for production")
 
 # Supabase Configuration
-SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
     print("Warning: SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables are required for production")
 

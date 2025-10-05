@@ -5,11 +5,11 @@ from fastapi import HTTPException
 
 def get_supabase_client() -> Client:
     """Initialize and return Supabase client."""
-    SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-    SUPABASE_SERVICE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        raise ValueError("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY environment variables are required")
+        raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables are required")
 
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
