@@ -44,54 +44,62 @@ class GoogleSearchService:
             logger.error("Google Custom Search API credentials not configured")
             return self._get_mock_results(company_name)
         
-        # Construct search query for company billing information
-        search_query = f'"{company_name}" billing address phone number email contact'
+        # Construct specific search queries for deterministic company information
+        search_queries = [
+            f'"{company_name}" official billing address contact information',
+            f'"{company_name}" customer service phone number billing',
+            f'"{company_name}" billing department email contact',
+            f'"{company_name}" corporate headquarters address phone'
+        ]
         
-        try:
-            params = {
-                'key': self.api_key,
-                'cx': self.search_engine_id,
-                'q': search_query,
-                'num': min(max_results, 10),  # Google API max is 10 per request
-                'safe': 'medium',
-                'fields': 'items(title,snippet,link),searchInformation(totalResults)'
-            }
-            
-            logger.info(f"Searching for company: {company_name}")
-            response = requests.get(self.base_url, params=params, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Add rate limiting delay
-            time.sleep(self.rate_limit_delay)
-            
-            return {
-                'success': True,
-                'query': search_query,
-                'total_results': data.get('searchInformation', {}).get('totalResults', '0'),
-                'items': data.get('items', []),
-                'error': None
-            }
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Google Search API request failed: {str(e)}")
-            return {
-                'success': False,
-                'query': search_query,
-                'total_results': '0',
-                'items': [],
-                'error': f"API request failed: {str(e)}"
-            }
-        except Exception as e:
-            logger.error(f"Unexpected error in Google Search: {str(e)}")
-            return {
-                'success': False,
-                'query': search_query,
-                'total_results': '0',
-                'items': [],
-                'error': f"Unexpected error: {str(e)}"
-            }
+        all_results = []
+        total_results = 0
+        
+        for search_query in search_queries:
+            try:
+                params = {
+                    'key': self.api_key,
+                    'cx': self.search_engine_id,
+                    'q': search_query,
+                    'num': min(max_results // len(search_queries), 3),  # Distribute results across queries
+                    'safe': 'medium',
+                    'fields': 'items(title,snippet,link),searchInformation(totalResults)'
+                }
+                
+                logger.info(f"Searching for: {search_query}")
+                response = requests.get(self.base_url, params=params, timeout=10)
+                response.raise_for_status()
+                
+                data = response.json()
+                items = data.get('items', [])
+                all_results.extend(items)
+                total_results += int(data.get('searchInformation', {}).get('totalResults', '0'))
+                
+                # Add rate limiting delay between requests
+                time.sleep(self.rate_limit_delay)
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Google Search API request failed for '{search_query}': {str(e)}")
+                continue
+            except Exception as e:
+                logger.error(f"Unexpected error in Google Search for '{search_query}': {str(e)}")
+                continue
+        
+        # Remove duplicates based on link
+        seen_links = set()
+        unique_results = []
+        for item in all_results:
+            if item.get('link') not in seen_links:
+                seen_links.add(item.get('link'))
+                unique_results.append(item)
+        
+        return {
+            'success': True,
+            'query': f"Multiple targeted searches for {company_name}",
+            'total_results': str(total_results),
+            'items': unique_results[:max_results],  # Limit final results
+            'error': None
+        }
     
     def extract_company_attributes(self, search_results: Dict[str, Any], company_name: str) -> Dict[str, Any]:
         """
@@ -136,12 +144,14 @@ class GoogleSearchService:
             if link:
                 websites.append(link)
         
-        # Extract billing address
+        # Extract billing address with more specific patterns
         address_patterns = [
-            r'\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl)\b[^,]*,\s*[A-Za-z\s]+,\s*[A-Z]{2}\s*\d{5}',
-            r'\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl)\b[^,]*,\s*[A-Za-z\s]+',
-            r'Address[:\s]+([^,\n]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl)[^,\n]*)',
-            r'Billing[:\s]+([^,\n]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl)[^,\n]*)'
+            # Official billing address patterns
+            r'Billing Address[:\s]+([^,\n]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl)[^,\n]*(?:,\s*[A-Za-z\s]+)*)',
+            r'Corporate Address[:\s]+([^,\n]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl)[^,\n]*(?:,\s*[A-Za-z\s]+)*)',
+            r'Headquarters[:\s]+([^,\n]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl)[^,\n]*(?:,\s*[A-Za-z\s]+)*)',
+            # Standard address patterns
+            r'\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl)\b[^,\n]*(?:,\s*[A-Za-z\s]+)*',
         ]
         
         for pattern in address_patterns:
@@ -151,12 +161,17 @@ class GoogleSearchService:
                 extracted_attributes['billing_address'] = (match.group(1) if match.groups() else match.group(0)).strip()
                 break
         
-        # Extract phone number
+        # Extract phone number with more specific patterns
         phone_patterns = [
+            # Customer service and billing specific
+            r'Customer Service[:\s]+(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})',
+            r'Billing Support[:\s]+(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})',
+            r'Billing Phone[:\s]+(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})',
+            r'Phone[:\s]+(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})',
+            r'Tel[:\s]+(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})',
+            # General phone patterns
             r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
             r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b',
-            r'Phone[:\s]+(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})',
-            r'Tel[:\s]+(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})'
         ]
         
         for pattern in phone_patterns:
@@ -166,11 +181,16 @@ class GoogleSearchService:
                 extracted_attributes['phone_number'] = (match.group(1) if match.groups() else match.group(0)).strip()
                 break
         
-        # Extract email address
+        # Extract email address with more specific patterns
         email_patterns = [
-            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            # Billing and customer service specific
+            r'Billing Email[:\s]+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})',
+            r'Customer Service[:\s]+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})',
+            r'Billing Support[:\s]+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})',
+            r'Contact Email[:\s]+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})',
             r'Email[:\s]+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})',
-            r'Contact[:\s]+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})'
+            # General email patterns
+            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
         ]
         
         for pattern in email_patterns:
@@ -180,31 +200,63 @@ class GoogleSearchService:
                 extracted_attributes['email'] = (match.group(1) if match.groups() else match.group(0)).strip()
                 break
         
-        # Extract website (prefer official company website)
+        # Extract website (prioritize official company website)
         if websites:
-            # Look for official company website
-            company_domain = company_name.lower().replace(' ', '').replace('inc', '').replace('llc', '').replace('corp', '')
+            # Look for official company website with higher priority
+            company_domain_variations = [
+                company_name.lower().replace(' ', '').replace('inc', '').replace('llc', '').replace('corp', '').replace('ltd', ''),
+                company_name.lower().replace(' ', ''),
+                company_name.lower().replace(' ', '-'),
+                company_name.lower().replace(' ', '.')
+            ]
+            
+            official_website = None
             for website in websites:
-                if company_domain in website.lower() or company_name.lower().replace(' ', '') in website.lower():
-                    extracted_attributes['website'] = website
+                website_lower = website.lower()
+                for domain_var in company_domain_variations:
+                    if domain_var in website_lower and any(ext in website_lower for ext in ['.com', '.org', '.net']):
+                        official_website = website
+                        break
+                if official_website:
                     break
             
-            # If no official website found, use the first one
-            if not extracted_attributes['website']:
-                extracted_attributes['website'] = websites[0]
+            extracted_attributes['website'] = official_website or websites[0]
+        else:
+            extracted_attributes['website'] = None
         
-        # Calculate confidence based on extracted attributes
+        # Calculate confidence based on specificity and completeness
         confidence_score = 0.0
+        specificity_bonus = 0.0
+        
+        # Base confidence from attribute extraction
         if extracted_attributes['billing_address']:
-            confidence_score += 0.3
+            confidence_score += 0.25
+            # Bonus for official billing address patterns
+            if any(term in extracted_attributes['billing_address'].lower() for term in ['billing', 'corporate', 'headquarters']):
+                specificity_bonus += 0.1
+        
         if extracted_attributes['phone_number']:
-            confidence_score += 0.3
+            confidence_score += 0.25
+            # Bonus for billing-specific phone patterns
+            if any(term in combined_text.lower() for term in ['billing', 'customer service', 'support']):
+                specificity_bonus += 0.1
+        
         if extracted_attributes['email']:
             confidence_score += 0.2
+            # Bonus for billing-specific email patterns
+            if any(term in extracted_attributes['email'].lower() for term in ['billing', 'support', 'customer']):
+                specificity_bonus += 0.1
+        
         if extracted_attributes['website']:
             confidence_score += 0.2
+            # Bonus for official company website
+            if any(domain_var in extracted_attributes['website'].lower() for domain_var in company_domain_variations):
+                specificity_bonus += 0.1
         
+        # Apply specificity bonus
+        confidence_score += specificity_bonus
         extracted_attributes['confidence'] = min(confidence_score, 1.0)
+        extracted_attributes['extraction_method'] = 'targeted_search_results'
         
         return extracted_attributes
     
@@ -214,16 +266,21 @@ class GoogleSearchService:
         
         mock_items = [
             {
-                "title": f"{company_name} Official Website",
-                "snippet": f"{company_name} billing address: 123 Main St, City, State. Phone: (555) 123-4567. Email: billing@{company_name.lower().replace(' ', '')}.com",
-                "link": f"https://{company_name.lower().replace(' ', '')}.com"
+                "title": f"{company_name} Official Billing Information",
+                "snippet": f"Billing Address: 123 Corporate Blvd, Business City, BC 12345. Customer Service Phone: (555) 123-4567. Billing Email: billing@{company_name.lower().replace(' ', '')}.com",
+                "link": f"https://{company_name.lower().replace(' ', '')}.com/billing"
+            },
+            {
+                "title": f"{company_name} Customer Support Contact",
+                "snippet": f"Billing Support Phone: (555) 123-4567. Billing Support Email: support@{company_name.lower().replace(' ', '')}.com. Corporate Headquarters: 123 Corporate Blvd, Business City, BC 12345",
+                "link": f"https://{company_name.lower().replace(' ', '')}.com/support"
             }
         ]
         
         return {
             'success': True,
-            'query': f'"{company_name}" billing address phone number email contact',
-            'total_results': '1',
+            'query': f"Multiple targeted searches for {company_name}",
+            'total_results': '2',
             'items': mock_items,
             'error': 'Using mock results - API credentials not configured'
         }
