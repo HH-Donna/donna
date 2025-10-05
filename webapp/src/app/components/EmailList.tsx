@@ -128,6 +128,7 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
     <div className="space-y-2 mx-6 mb-6">
       {emails.map((email) => {
         const isExpanded = expandedEmails.has(email.id as any)
+
         return (
           <div
             key={email.id}
