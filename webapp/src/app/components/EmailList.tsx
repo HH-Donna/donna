@@ -43,7 +43,10 @@ function ExpandableContent({ isExpanded, children }: { isExpanded: boolean; chil
 }
 
 export default function EmailList({ emails, onEmailClick }: EmailListProps) {
-  const [expandedEmails, setExpandedEmails] = useState<Set<number>>(new Set())
+  const [expandedEmails, setExpandedEmails] = useState<Set<string>>(new Set())
+  const [logsByEmail, setLogsByEmail] = useState<Record<string, any[]>>({})
+
+  // Render exactly the emails provided; no placeholders
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -106,29 +109,67 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
     }
   }
 
-  const toggleExpanded = (emailId: number) => {
+  const toggleExpanded = (emailId: number | string) => {
+    const idKey = String(emailId)
     setExpandedEmails(prev => {
       const newSet = new Set(prev)
-      if (newSet.has(emailId)) {
-        newSet.delete(emailId)
+      if (newSet.has(idKey)) {
+        newSet.delete(idKey)
       } else {
-        newSet.add(emailId)
+        newSet.add(idKey)
       }
       return newSet
     })
     
     // Call onEmailClick when expanding (optional - remove if not needed)
-    const email = emails.find(e => e.id === emailId)
-    if (email && !expandedEmails.has(emailId)) {
+    const email = emails.find(e => String(e.id) === idKey)
+    if (email && !expandedEmails.has(idKey)) {
       onEmailClick?.(email)
+      // Lazy-fetch fraud logs for this email when expanding
+      if (!logsByEmail[idKey]) {
+        fetch(`/api/logs/${encodeURIComponent(idKey)}`)
+          .then(r => r.ok ? r.json() : Promise.reject(new Error('failed')))
+          .then(json => {
+            const logs = Array.isArray(json?.logs) ? json.logs : []
+            setLogsByEmail(prev => ({ ...prev, [idKey]: logs }))
+          })
+          .catch(() => {
+            setLogsByEmail(prev => ({ ...prev, [idKey]: [] }))
+          })
+      }
     }
+  }
+
+  const orderedSteps = [
+    'gemini_analysis',
+    'domain_check',
+    'company_verification',
+    'final_decision'
+  ] as const
+
+  const stepLabel: Record<string, string> = {
+    gemini_analysis: 'AI Analysis',
+    domain_check: 'Domain Check',
+    company_verification: 'Company Verification',
+    final_decision: 'Final Decision'
+  }
+
+  function buildStepPanels(emailId: number | string) {
+    const idKey = String(emailId)
+    const logs = logsByEmail[idKey] || []
+    const byStep: Record<string, any> = {}
+    for (const log of logs) {
+      const key = String(log.step || '').toLowerCase()
+      if (!byStep[key]) byStep[key] = log
+    }
+    const panels = orderedSteps.map(step => byStep[step] || null)
+    return panels
   }
 
   return (
     <div className="space-y-2 mx-6 mb-6">
       {emails.map((email) => {
-        const isExpanded = expandedEmails.has(email.id as any)
-
+        const isExpanded = expandedEmails.has(String(email.id))
         return (
           <div
             key={email.id}
@@ -140,7 +181,7 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
           >
             <div
               className="flex items-center p-4 cursor-pointer group"
-              onClick={() => toggleExpanded(email.id as any)}
+              onClick={() => toggleExpanded(email.id)}
             >
               {/* Left: Subject and Sender */}
               <div className="flex-1 min-w-0 mr-4">
@@ -219,6 +260,32 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
                       <p className="text-sm text-gray-800 leading-relaxed line-clamp-3">
                         {email.body}
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Analysis Steps: 4 columns horizontally, full-height, with clear vertical dividers */}
+                  <div className="mt-3">
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Analysis Steps</span>
+                    <div className="mt-2 flex divide-x divide-gray-200 rounded-lg border border-gray-200 overflow-hidden min-h-[128px] items-stretch w-full">
+                      {buildStepPanels(email.id).map((log, idx) => (
+                        <div key={idx} className="relative flex-1 p-3 flex flex-col items-center justify-center text-center">
+                          {/* Internal centered gradient line, not touching edges */}
+                          <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 -translate-x-1/2">
+                            <div className="w-px h-full bg-gradient-to-b from-transparent via-gray-300 to-transparent" />
+                          </div>
+
+                          <div className="text-[11px] font-semibold text-gray-700 mb-1">
+                            {stepLabel[orderedSteps[idx]]}
+                          </div>
+                          {log ? (
+                            <div className="text-xs text-gray-700 leading-snug whitespace-pre-wrap break-words">
+                              {String(log.reasoning || '').slice(0, 280)}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-gray-400">—</div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
