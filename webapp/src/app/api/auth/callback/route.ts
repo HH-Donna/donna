@@ -22,11 +22,12 @@ export async function GET(request: Request) {
       const providerRefreshToken = session.provider_refresh_token
       
       
-      // Check if we have Gmail-related scopes (including People API for profile pictures)
+      // Check if we have Gmail-related scopes (including People API for profile pictures and modify for watch)
       const scopes = session.provider_token ? [
         'https://mail.google.com/', 
         'https://www.googleapis.com/auth/gmail.labels',
-        'https://www.googleapis.com/auth/contacts.readonly'
+        'https://www.googleapis.com/auth/contacts.readonly',
+        'https://www.googleapis.com/auth/gmail.modify'
       ] : []
       
       if (providerToken && user.id) {
