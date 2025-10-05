@@ -675,51 +675,64 @@ def verify_company_online(
             'error': search_response.get('error')
         }
         
-        # Compare attributes
+        # Compare only phone number and billing address (email is too hard to find reliably)
         attribute_differences = []
+        phone_match = False
+        address_match = False
         
-        # Check billing address
-        if extracted_billing_address and online_billing_address:
-            if extracted_billing_address.lower() != online_billing_address.lower():
-                attribute_differences.append({
-                    'attribute': 'billing_address',
-                    'expected': online_billing_address,
-                    'actual': extracted_billing_address
-                })
-        
-        # Check phone number
+        # Check phone number (normalize formats for comparison)
         if extracted_phone and online_phone:
-            if extracted_phone != online_phone:
+            # Normalize phone numbers by removing all non-digit characters
+            normalized_extracted = re.sub(r'\D', '', extracted_phone)
+            normalized_online = re.sub(r'\D', '', online_phone)
+            
+            if normalized_extracted == normalized_online:
+                phone_match = True
+            else:
                 attribute_differences.append({
                     'attribute': 'biller_phone_number',
                     'expected': online_phone,
                     'actual': extracted_phone
                 })
         
-        # Check email address
-        if from_address and online_email:
-            if from_address.lower() != online_email.lower():
+        # Check billing address
+        if extracted_billing_address and online_billing_address:
+            if extracted_billing_address.lower() == online_billing_address.lower():
+                address_match = True
+            else:
                 attribute_differences.append({
-                    'attribute': 'email',
-                    'expected': online_email,
-                    'actual': from_address
+                    'attribute': 'billing_address',
+                    'expected': online_billing_address,
+                    'actual': extracted_billing_address
                 })
         
-        # Determine verification result
-        is_verified = len(attribute_differences) == 0
-        trigger_agent = len(attribute_differences) > 0
+        # Determine verification result based on new logic:
+        # - "legit": Both phone and address found and match
+        # - "call": Phone found and matches (regardless of address)
+        # - "pending": Neither found or no matches (human review needed)
         
-        # Calculate confidence based on extraction confidence and verification result
-        base_confidence = extraction_confidence
-        if is_verified:
-            reasoning = f"Online verification passed - all attributes match for '{company_name}'"
-            confidence = min(base_confidence + 0.2, 1.0)  # Boost confidence for verified results
+        if phone_match and address_match:
+            verification_status = "legit"
+            is_verified = True
+            trigger_agent = False
+            reasoning = f"Online verification passed - both phone and billing address match for '{company_name}'"
+            confidence = min(extraction_confidence + 0.3, 1.0)  # High confidence for both matches
+        elif phone_match:
+            verification_status = "call"
+            is_verified = False
+            trigger_agent = True
+            reasoning = f"Phone number verified for '{company_name}' - trigger agent for address verification"
+            confidence = min(extraction_confidence + 0.1, 0.8)  # Medium confidence for phone match
         else:
-            reasoning = f"Online verification failed - attributes differ for '{company_name}': {', '.join([diff['attribute'] for diff in attribute_differences])}"
-            confidence = max(base_confidence - 0.1, 0.1)  # Reduce confidence for failed verification
+            verification_status = "pending"
+            is_verified = False
+            trigger_agent = False
+            reasoning = f"Insufficient verification data for '{company_name}' - requires human review"
+            confidence = max(extraction_confidence - 0.2, 0.1)  # Low confidence for insufficient data
         
         result = {
             "is_verified": is_verified,
+            "verification_status": verification_status,  # New field: "legit", "call", or "pending"
             "company_name": company_name,
             "search_query": search_query,
             "attribute_differences": attribute_differences,
@@ -727,7 +740,13 @@ def verify_company_online(
             "reasoning": reasoning,
             "trigger_agent": trigger_agent,
             "search_results": search_results,
-            "log_entries": log_entries
+            "log_entries": log_entries,
+            "phone_match": phone_match,
+            "address_match": address_match,
+            "extracted_phone": extracted_phone,
+            "online_phone": online_phone,
+            "extracted_address": extracted_billing_address,
+            "online_address": online_billing_address
         }
         
         # Save search results to database
