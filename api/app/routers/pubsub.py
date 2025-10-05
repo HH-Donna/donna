@@ -10,6 +10,7 @@ from app.database.gmail_watch import get_gmail_watch
 from app.database.supabase_client import get_supabase_client
 from app.services import create_gmail_service, get_email_attachments
 from app.services.attachment_parser import process_attachments
+from app.services.fraud_logger import create_fraud_logger
 
 # Add ml directory to path for domain_checker import
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../ml'))
@@ -115,6 +116,10 @@ async def process_new_email_background(user_id: str, history_id: str, email_addr
         
         print(f"   📧 Found {len(new_message_ids)} new messages")
         
+        # Setup EmailFraudLogger for this user
+        supabase = get_supabase_client()
+        fraud_logger = create_fraud_logger(supabase)
+        
         # Process each new message through fraud detection pipeline
         for message_id in new_message_ids:
             try:
@@ -132,12 +137,9 @@ async def process_new_email_background(user_id: str, history_id: str, email_addr
                     print(f"      ⏭️  Not a billing email, skipping")
                     continue
                 
-                print(f"      ✅ Billing email detected")
+                print(f"      ✅ Billing email detected (rule-based)")
                 
-                # STEP 3: Setup EmailFraudLogger (TODO: implement if needed)
-                fraud_logger = None  # Will be implemented when fraud logging is needed
-                
-                # STEP 4: Run classify_email_type_with_gemini()
+                # STEP 3: Run classify_email_type_with_gemini() with fraud logger
                 classification = classify_email_type_with_gemini(msg, user_id, fraud_logger)
                 
                 if not classification['is_billing']:
@@ -146,6 +148,7 @@ async def process_new_email_background(user_id: str, history_id: str, email_addr
                 
                 print(f"      ✅ Gemini confirmed billing email: {classification['email_type']}")
                 print(f"         Confidence: {classification['confidence']}")
+                print(f"         Logged {len(classification.get('log_entries', []))} fraud analysis steps")
                 
                 # STEP 5: Pull attachments and parse
                 print(f"      📎 Fetching attachments...")
