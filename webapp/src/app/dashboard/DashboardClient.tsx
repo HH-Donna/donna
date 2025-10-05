@@ -3,13 +3,16 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Mail, TrendingUp } from 'lucide-react'
+import { Mail, TrendingUp, Bell } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import DashboardNav from '../components/DashboardNav'
 import EmailList from '../components/EmailList'
 import EmailSearch from '../components/EmailSearch'
 import Analytics from '../components/Analytics'
 import LegitimateBillers from '../components/LegitimateBillers'
 import OnboardingForm from '../components/OnboardingForm'
+import { useEmailNotifications } from '../hooks/useEmailNotifications'
+
 
 interface DashboardClientProps {
   user: {
@@ -32,15 +35,30 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('emails')
   const [searchQuery, setSearchQuery] = useState('')
+  
+  const { newEmailCount, latestEmails, clearNotifications } = useEmailNotifications(onboardingProps.userId)
 
-  const legitimateBillers = companies.map((company, index) => ({
-    id: company.id || index,
+  const legitimateBillers = companies.map((company: any) => ({
+    id: company.id || company.name,
     name: company.name || 'Unknown',
     domain: company.domain || '',
-    logo: '🏢' 
+    billing_address: company.billing_address,
+    created_at: company.created_at || new Date().toISOString(),
+    profile_picture_url: company.profile_picture_url,
+    payment_method: company.payment_method,
+    biller_billing_details: company.biller_billing_details,
+    frequency: company.frequency,
+    total_invoices: company.total_invoices,
+    source_email_ids: company.source_email_ids,
+    user_id: company.user_id,
+    updated_at: company.updated_at || new Date().toISOString(),
+    user_billing_details: company.user_billing_details,
+    contact_emails: company.contact_emails,
+    user_account_number: company.user_account_number,
+    biller_phone_number: company.biller_phone_number
   }))
 
-  const emails = initialEmails.map((email) => ({
+  const processedEmails = initialEmails.map((email: any) => ({
     id: email.id,
     sender: email.sender || '',
     subject: email.subject || '',
@@ -99,14 +117,14 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
     }
   }
 
-  const handleEmailClick = (email: typeof emails[0]) => {
+  const handleEmailClick = (email: any) => {
     console.log('Email clicked:', email)
   }
 
   const handleFilterClick = () => {
     console.log('Filter clicked')
   }
-  const filteredEmails = emails.filter(email => 
+  const filteredEmails = processedEmails.filter((email: any) => 
     email.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
     email.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
     email.company.toLowerCase().includes(searchQuery.toLowerCase())
@@ -119,12 +137,22 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
       <div className="container mx-auto px-6 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="bg-white border border-gray-200">
-            <TabsTrigger 
+            <TabsTrigger
               value="emails" 
               className="data-[state=active]:bg-amber-500 data-[state=active]:text-white"
+              onClick={() => {
+                if (activeTab === 'emails') clearNotifications()
+              }}
             >
-              <Mail className="h-4 w-4 mr-2" />
-              Email List
+              <div className="flex items-center">
+                <Mail className="h-4 w-4 mr-2" />
+                Email List
+                {newEmailCount > 0 && (
+                  <Badge variant="destructive" className="ml-2 text-xs px-2 py-1">
+                    {newEmailCount}
+                  </Badge>
+                )}
+              </div>
             </TabsTrigger>
             <TabsTrigger 
               value="analytics" 
@@ -136,8 +164,12 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
           </TabsList>
 
           <TabsContent value="emails" className="space-y-6">
-            
-            <LegitimateBillers billers={legitimateBillers} />
+            {legitimateBillers.length > 0 && (
+              <LegitimateBillers 
+                key="persistent-billers" 
+                billers={legitimateBillers} 
+              />
+            )}
             <EmailSearch 
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
