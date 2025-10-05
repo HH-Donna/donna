@@ -3,14 +3,15 @@ import { Badge } from '@/components/ui/badge'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
 interface Email {
-  id: number
+  id: number | string
   sender: string
   subject: string
   body: string
   company: string
-  status: 'flagged' | 'resolved' | 'pending'
+  status: 'flagged' | 'resolved' | 'pending' | 'processed' | 'processing' | 'completed'
   received_at: string
   label: string
+  isNew?: boolean
 }
 
 interface EmailListProps {
@@ -131,7 +132,11 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
         return (
           <div
             key={email.id}
-            className="bg-white border border-gray-300 rounded-lg hover:shadow-md hover:border-gray-400 transition-all duration-200"
+            className={`bg-white border rounded-lg hover:shadow-md transition-all duration-200 ${
+              email.isNew 
+                ? 'border-amber-400 shadow-amber-100 shadow-md animate-pulse-once' 
+                : 'border-gray-300 hover:border-gray-400'
+            }`}
           >
             <div
               className="flex items-center p-4 cursor-pointer group"
