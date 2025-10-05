@@ -1,27 +1,15 @@
--- Updated Email Fraud Logs Schema with Verification Status Support
--- This schema supports the new practical verification logic with three states: legit, call, pending
+-- SQL Code to Update Schema for Verification Status Support
+-- Run these statements to safely update the existing schema
 
-CREATE TABLE IF NOT EXISTS email_fraud_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email_id TEXT NOT NULL,
-    user_uuid UUID NOT NULL REFERENCES auth.users(id),
-    step TEXT NOT NULL CHECK (step IN ('gemini_analysis', 'domain_check', 'company_verification', 'online_verification', 'final_decision')),
-    decision BOOLEAN NOT NULL,  -- true = proceed, false = halt
-    verification_status TEXT CHECK (verification_status IN ('legit', 'call', 'pending')),  -- New field for verification states
-    confidence DECIMAL(3,2) CHECK (confidence >= 0.00 AND confidence <= 1.00),
-    reasoning TEXT,  -- justification for the decision
-    details JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- 1. Add verification_status column to email_fraud_logs table (if it doesn't exist)
+ALTER TABLE email_fraud_logs 
+ADD COLUMN IF NOT EXISTS verification_status TEXT CHECK (verification_status IN ('legit', 'call', 'pending'));
 
--- Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_email_fraud_logs_email_id ON email_fraud_logs(email_id);
-CREATE INDEX IF NOT EXISTS idx_email_fraud_logs_user_uuid ON email_fraud_logs(user_uuid);
-CREATE INDEX IF NOT EXISTS idx_email_fraud_logs_step ON email_fraud_logs(step);
-CREATE INDEX IF NOT EXISTS idx_email_fraud_logs_verification_status ON email_fraud_logs(verification_status);
-CREATE INDEX IF NOT EXISTS idx_email_fraud_logs_created_at ON email_fraud_logs(created_at);
+-- 2. Create index for verification_status on email_fraud_logs (if it doesn't exist)
+CREATE INDEX IF NOT EXISTS idx_email_fraud_logs_verification_status 
+ON email_fraud_logs(verification_status);
 
--- Google Search Results Table
+-- 3. Create google_search_results table if it doesn't exist (with new fields)
 CREATE TABLE IF NOT EXISTS google_search_results (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email_id TEXT NOT NULL,
@@ -30,25 +18,40 @@ CREATE TABLE IF NOT EXISTS google_search_results (
     search_query TEXT NOT NULL,
     billing_address TEXT,
     biller_phone_number TEXT,
-    email TEXT,  -- Email address found in search results
-    frequency TEXT,  -- Still tracked but not searched online
-    search_results JSONB,  -- Raw Google Search API results
-    extracted_attributes JSONB,  -- Extracted attributes from search results
+    email TEXT,
+    frequency TEXT,
+    search_results JSONB,
+    extracted_attributes JSONB,
     confidence DECIMAL(3,2) CHECK (confidence >= 0.00 AND confidence <= 1.00),
-    verification_status TEXT CHECK (verification_status IN ('legit', 'call', 'pending')),  -- New field
-    phone_match BOOLEAN,  -- New field for phone verification
-    address_match BOOLEAN,  -- New field for address verification
+    verification_status TEXT CHECK (verification_status IN ('legit', 'call', 'pending')),
+    phone_match BOOLEAN,
+    address_match BOOLEAN,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Indexes for Google Search Results
+-- 4. Add verification_status column to google_search_results table (if it doesn't exist)
+ALTER TABLE google_search_results 
+ADD COLUMN IF NOT EXISTS verification_status TEXT CHECK (verification_status IN ('legit', 'call', 'pending'));
+
+-- 5. Add phone_match column to google_search_results table (if it doesn't exist)
+ALTER TABLE google_search_results 
+ADD COLUMN IF NOT EXISTS phone_match BOOLEAN;
+
+-- 6. Add address_match column to google_search_results table (if it doesn't exist)
+ALTER TABLE google_search_results 
+ADD COLUMN IF NOT EXISTS address_match BOOLEAN;
+
+-- 7. Create indexes for google_search_results table (if they don't exist)
 CREATE INDEX IF NOT EXISTS idx_google_search_results_email_id ON google_search_results(email_id);
 CREATE INDEX IF NOT EXISTS idx_google_search_results_user_uuid ON google_search_results(user_uuid);
 CREATE INDEX IF NOT EXISTS idx_google_search_results_company_name ON google_search_results(company_name);
 CREATE INDEX IF NOT EXISTS idx_google_search_results_verification_status ON google_search_results(verification_status);
 CREATE INDEX IF NOT EXISTS idx_google_search_results_created_at ON google_search_results(created_at);
 
--- Function to get complete fraud analysis for an email
+-- 8. Update get_email_fraud_analysis function to include verification_status
+-- Drop existing function first to change return type
+DROP FUNCTION IF EXISTS get_email_fraud_analysis(TEXT, UUID);
+
 CREATE OR REPLACE FUNCTION get_email_fraud_analysis(p_email_id TEXT, p_user_uuid UUID)
 RETURNS TABLE (
     step TEXT,
@@ -76,7 +79,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to get final decision for an email
+-- 9. Update get_email_final_decision function (keep existing logic)
+-- Drop existing function first to avoid return type conflicts
+DROP FUNCTION IF EXISTS get_email_final_decision(TEXT, UUID);
+
 CREATE OR REPLACE FUNCTION get_email_final_decision(p_email_id TEXT, p_user_uuid UUID)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -94,7 +100,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to get email status for email table (updated to use verification_status)
+-- 10. Update get_email_status function to use verification_status
+-- Drop existing function first to avoid return type conflicts
+DROP FUNCTION IF EXISTS get_email_status(TEXT, UUID);
+
 CREATE OR REPLACE FUNCTION get_email_status(p_email_id TEXT, p_user_uuid UUID)
 RETURNS TEXT AS $$
 DECLARE
@@ -125,7 +134,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to get verification details for an email
+-- 11. Create new function to get verification details
+-- Drop existing function first to avoid conflicts
+DROP FUNCTION IF EXISTS get_email_verification_details(TEXT, UUID);
+
 CREATE OR REPLACE FUNCTION get_email_verification_details(p_email_id TEXT, p_user_uuid UUID)
 RETURNS TABLE (
     verification_status TEXT,
@@ -152,3 +164,6 @@ BEGIN
     LIMIT 1;
 END;
 $$ LANGUAGE plpgsql;
+
+-- 12. Verify the updates worked
+SELECT 'Schema update completed successfully' as status;
