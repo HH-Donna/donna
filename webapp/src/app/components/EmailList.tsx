@@ -3,14 +3,15 @@ import { Badge } from '@/components/ui/badge'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
 interface Email {
-  id: number
+  id: number | string
   sender: string
   subject: string
   body: string
   company: string
-  status: 'flagged' | 'resolved' | 'pending' | 'processed'
+  status: 'flagged' | 'resolved' | 'pending' | 'processed' | 'processing' | 'completed'
   received_at: string
   label: string
+  isNew?: boolean
 }
 
 interface EmailListProps {
@@ -42,8 +43,8 @@ function ExpandableContent({ isExpanded, children }: { isExpanded: boolean; chil
 }
 
 export default function EmailList({ emails, onEmailClick }: EmailListProps) {
-  const [expandedEmails, setExpandedEmails] = useState<Set<number>>(new Set())
-  const [logsByEmail, setLogsByEmail] = useState<Record<number, any[]>>({})
+  const [expandedEmails, setExpandedEmails] = useState<Set<string>>(new Set())
+  const [logsByEmail, setLogsByEmail] = useState<Record<string, any[]>>({})
 
   // Render exactly the emails provided; no placeholders
 
@@ -108,31 +109,32 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
     }
   }
 
-  const toggleExpanded = (emailId: number) => {
+  const toggleExpanded = (emailId: number | string) => {
+    const idKey = String(emailId)
     setExpandedEmails(prev => {
       const newSet = new Set(prev)
-      if (newSet.has(emailId)) {
-        newSet.delete(emailId)
+      if (newSet.has(idKey)) {
+        newSet.delete(idKey)
       } else {
-        newSet.add(emailId)
+        newSet.add(idKey)
       }
       return newSet
     })
     
     // Call onEmailClick when expanding (optional - remove if not needed)
-    const email = emails.find(e => e.id === emailId)
-    if (email && !expandedEmails.has(emailId)) {
+    const email = emails.find(e => String(e.id) === idKey)
+    if (email && !expandedEmails.has(idKey)) {
       onEmailClick?.(email)
       // Lazy-fetch fraud logs for this email when expanding
-      if (!logsByEmail[emailId]) {
-        fetch(`/api/logs/${encodeURIComponent(String(emailId))}`)
+      if (!logsByEmail[idKey]) {
+        fetch(`/api/logs/${encodeURIComponent(idKey)}`)
           .then(r => r.ok ? r.json() : Promise.reject(new Error('failed')))
           .then(json => {
             const logs = Array.isArray(json?.logs) ? json.logs : []
-            setLogsByEmail(prev => ({ ...prev, [emailId]: logs }))
+            setLogsByEmail(prev => ({ ...prev, [idKey]: logs }))
           })
           .catch(() => {
-            setLogsByEmail(prev => ({ ...prev, [emailId]: [] }))
+            setLogsByEmail(prev => ({ ...prev, [idKey]: [] }))
           })
       }
     }
@@ -152,8 +154,9 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
     final_decision: 'Final Decision'
   }
 
-  function buildStepPanels(emailId: number) {
-    const logs = logsByEmail[emailId] || []
+  function buildStepPanels(emailId: number | string) {
+    const idKey = String(emailId)
+    const logs = logsByEmail[idKey] || []
     const byStep: Record<string, any> = {}
     for (const log of logs) {
       const key = String(log.step || '').toLowerCase()
@@ -166,12 +169,16 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
   return (
     <div className="space-y-2 mx-6 mb-6">
       {emails.map((email) => {
-        const isExpanded = expandedEmails.has(email.id)
+        const isExpanded = expandedEmails.has(String(email.id))
         
         return (
           <div
             key={email.id}
-            className="bg-white border border-gray-300 rounded-lg hover:shadow-md hover:border-gray-400 transition-all duration-200"
+            className={`bg-white border rounded-lg hover:shadow-md transition-all duration-200 ${
+              email.isNew 
+                ? 'border-amber-400 shadow-amber-100 shadow-md animate-pulse-once' 
+                : 'border-gray-300 hover:border-gray-400'
+            }`}
           >
             <div
               className="flex items-center p-4 cursor-pointer group"

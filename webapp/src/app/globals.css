@@ -119,3 +119,23 @@
   }
 }
 
+/* Custom animation for new email notification */
+@keyframes pulse-once {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-pulse-once {
+  animation: pulse-once 1s ease-in-out 2;
+}
+

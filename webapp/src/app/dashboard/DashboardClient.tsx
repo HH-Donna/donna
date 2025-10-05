@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { DollarSign, ShieldCheck, Phone } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -32,18 +32,43 @@ interface DashboardClientProps {
 export default function DashboardClient({ user, initialEmails, companies, needsOnboarding, onboardingProps }: DashboardClientProps) {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
+  const [emails, setEmails] = useState(initialEmails)
   
   const { newEmailCount, latestEmails, clearNotifications } = useEmailNotifications(onboardingProps.userId)
 
-  // Calculate metrics from email data
+  // Update emails when new ones arrive via real-time subscription
+  useEffect(() => {
+    if (latestEmails.length > 0) {
+      setEmails(prevEmails => {
+        // Create a map of existing emails for efficient lookup
+        const existingEmailIds = new Set(prevEmails.map(e => e.id))
+        
+        // Filter out emails that already exist
+        const newEmails = latestEmails.filter(email => !existingEmailIds.has(email.id))
+        
+        // Merge new emails at the beginning
+        if (newEmails.length > 0) {
+          return [...newEmails, ...prevEmails]
+        }
+        
+        // Update existing emails if they've been modified
+        return prevEmails.map(email => {
+          const updatedEmail = latestEmails.find(e => e.id === email.id)
+          return updatedEmail || email
+        })
+      })
+    }
+  }, [latestEmails])
+
+  // Calculate metrics from current emails (including real-time updates)
   const calculateMetrics = () => {
     // Calculate total money saved from fraudulent and unsure emails
-    const totalMoneySaved = initialEmails
+    const totalMoneySaved = emails
       .filter(email => email.label === 'fraudulent' || email.label === 'unsure')
       .reduce((sum, email) => sum + (email.amount || 0), 0)
 
     // Count total avoided scams (fraudulent + unsure emails)
-    const totalAvoidedScams = initialEmails.filter(
+    const totalAvoidedScams = emails.filter(
       email => email.label === 'fraudulent' || email.label === 'unsure'
     ).length
 
@@ -80,17 +105,24 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
     biller_phone_number: company.biller_phone_number
   }))
 
-  const processedEmails = initialEmails.map((email: any) => ({
-    id: email.id,
-    sender: email.sender || '',
-    subject: email.subject || '',
-    body: email.body || '',
-    company: email.company_id || 'Unknown', 
-    status: email.status as 'flagged' | 'resolved' | 'pending',
-    received_at: email.received_at || new Date().toISOString(),
-    label: email.label || '',
-    amount: email.amount || 0
-  }))
+  // Process emails with memoization to avoid unnecessary recalculations
+  const processedEmails = useMemo(() => {
+    // Get IDs of the latest emails for marking as new
+    const latestEmailIds = new Set(latestEmails.map(e => e.id))
+    
+    return emails.map((email: any) => ({
+      id: email.id,
+      sender: email.sender || '',
+      subject: email.subject || '',
+      body: email.body || '',
+      company: email.company_id || email.company || 'Unknown', 
+      status: email.status as 'flagged' | 'resolved' | 'pending' | 'processed',
+      received_at: email.received_at || new Date().toISOString(),
+      label: email.label || '',
+      amount: email.amount || 0,
+      isNew: latestEmailIds.has(email.id)
+    }))
+  }, [emails, latestEmails])
 
   const handleLogout = async () => {
     try {
@@ -109,6 +141,10 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
 
   const handleEmailClick = (email: any) => {
     console.log('Email clicked:', email)
+    // Clear notifications when user interacts with emails
+    if (newEmailCount > 0) {
+      clearNotifications()
+    }
   }
 
   const handleFilterClick = () => {
@@ -184,11 +220,18 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 ">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 px-6">
           {/* Left: Emails (2/3 width) */}
           <div className="lg:col-span-2 space-y-4">
             <div className="mx-6">
-              <h2 className="text-lg font-bold text-gray-900 tracking-tight mb-2">Emails</h2>
+              <h2 className="text-lg font-bold text-gray-900 tracking-tight mb-2">
+                Emails
+                {newEmailCount > 0 && (
+                  <span className="ml-2 text-sm font-normal text-amber-600">
+                    ({newEmailCount} new)
+                  </span>
+                )}
+              </h2>
               <p className="text-sm text-gray-600 -mt-2 mb-4">Recent email activity and fraud detection</p>
             </div>
             <EmailSearch 
