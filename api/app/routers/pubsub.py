@@ -223,7 +223,7 @@ async def process_new_email_background(user_id: str, history_id: str, email_addr
                 
                 # STEP 6: Verify company against database
                 print(f"      🏢 Verifying company against database...")
-                company_verification = verify_company_against_database(
+                company_verification = await verify_company_against_database(
                     msg,
                     user_id,
                     fraud_logger
@@ -719,7 +719,7 @@ async def process_test_email_background(user_id: str, user_email: str, mock_mess
         
         # STEP 5: Verify company against database
         print(f"\n🏢 STEP 5: Company Verification...")
-        company_verification = verify_company_against_database(mock_message, user_id, fraud_logger)
+        company_verification = await verify_company_against_database(mock_message, user_id, fraud_logger)
         print(f"   Is Verified: {company_verification.get('is_verified', False)}")
         if company_verification.get('company_match'):
             company = company_verification['company_match']

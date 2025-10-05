@@ -74,7 +74,7 @@ async def analyze_email_for_fraud(
         fraud_logger = create_fraud_logger(supabase)
         
         # Perform fraud analysis with logging
-        result = check_billing_email_legitimacy(
+        result = await check_billing_email_legitimacy(
             gmail_msg=request.gmail_message,
             user_uuid=request.user_uuid,
             fraud_logger=fraud_logger
@@ -393,7 +393,7 @@ async def verify_company(
         fraud_logger = create_fraud_logger(supabase)
         
         # Verify company against database
-        result = verify_company_against_database(
+        result = await verify_company_against_database(
             request.gmail_message,
             request.user_uuid,
             fraud_logger
@@ -407,7 +407,11 @@ async def verify_company(
             "confidence": result["confidence"],
             "reasoning": result["reasoning"],
             "trigger_agent": result.get("trigger_agent", False),
-            "log_entries": result.get("log_entries", [])
+            "log_entries": result.get("log_entries", []),
+            "call_initiated": result.get("call_initiated", False),
+            "call_result": result.get("call_result"),
+            "online_verified": result.get("online_verified", False),
+            "online_phone": result.get("online_phone")
         }
         
     except Exception as e:
@@ -435,7 +439,7 @@ async def verify_company_online_endpoint(
         fraud_logger = create_fraud_logger(supabase)
         
         # Verify company online
-        result = verify_company_online(
+        result = await verify_company_online(
             request.gmail_message,
             request.user_uuid,
             company_name,
@@ -459,7 +463,9 @@ async def verify_company_online_endpoint(
             "extracted_phone": result.get("extracted_phone"),
             "online_phone": result.get("online_phone"),
             "extracted_address": result.get("extracted_address"),
-            "online_address": result.get("online_address")
+            "online_address": result.get("online_address"),
+            "call_initiated": result.get("call_initiated", False),
+            "call_result": result.get("call_result")
         }
         
     except Exception as e:

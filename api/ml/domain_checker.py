@@ -26,6 +26,7 @@ import difflib
 import socket
 import base64
 import os
+import asyncio
 from typing import Dict, Any, List, Tuple, Optional
 
 # Optional imports for enhanced domain analysis
@@ -419,7 +420,7 @@ def analyze_domain_legitimacy(
     return legitimacy_result
 
 
-def verify_company_against_database(
+async def verify_company_against_database(
     gmail_msg: Dict[str, Any],
     user_uuid: str,
     fraud_logger: Optional[Any] = None
@@ -485,7 +486,7 @@ def verify_company_against_database(
         
         if not companies_result.data:
             # No matching company found - perform online verification
-            online_result = verify_company_online(gmail_msg, user_uuid, company_name, fraud_logger)
+            online_result = await verify_company_online(gmail_msg, user_uuid, company_name, fraud_logger)
             log_entries.extend(online_result["log_entries"])
             
             # Return online verification result
@@ -602,7 +603,7 @@ def verify_company_against_database(
         return result
 
 
-def verify_company_online(
+async def verify_company_online(
     gmail_msg: Dict[str, Any],
     user_uuid: str,
     company_name: str,
@@ -749,6 +750,126 @@ def verify_company_online(
             "online_address": online_billing_address
         }
         
+        # If phone number found with sufficient confidence, call using ElevenLabs agent
+        call_result = None
+        if online_phone and extraction_confidence >= 0.5:
+            print(f"\n📞 Phone number found for {company_name}: {online_phone}")
+            print(f"   Confidence: {extraction_confidence:.2f} - Initiating ElevenLabs agent call...")
+            
+            try:
+                # Import ElevenLabs agent service
+                from app.services.eleven_agent import eleven_agent
+                from ml.email_classifier import extract_kv_from_text
+                
+                # Log user info being used for call
+                print(f"   👤 Fetching user context for personalized call...")
+                
+                # Extract invoice data from email for context
+                email_data = {
+                    'subject': subject,
+                    'from_address': from_address,
+                    'date': parsed_data.get('headers', {}).get('date', ''),
+                    'snippet': gmail_msg.get('snippet', '')[:200],
+                }
+                
+                # Try to extract invoice number and amount from body
+                if body_text:
+                    extracted_fields = extract_kv_from_text(body_text)
+                    email_data['invoice_id'] = extracted_fields.get('invoice_number', 'N/A')
+                    email_data['amount'] = extracted_fields.get('total', 'N/A')
+                else:
+                    email_data['invoice_id'] = 'N/A'
+                    email_data['amount'] = 'N/A'
+                
+                # Call the company using ElevenLabs agent with user info and email data injection
+                call_result = await eleven_agent.verify_company_by_call(
+                    company_name=company_name,
+                    phone_number=online_phone,
+                    email=online_email or from_address,
+                    user_uuid=user_uuid,
+                    email_data=email_data
+                )
+                
+                if call_result.get('success'):
+                    print(f"   ✅ Call initiated successfully")
+                    print(f"   📞 Phone: {call_result.get('phone_number', 'N/A')}")
+                    print(f"   🆔 Conversation ID: {call_result.get('conversation_id', 'N/A')}")
+                    print(f"   🆔 Call SID: {call_result.get('call_sid', 'N/A')}")
+                    print(f"   🤖 Agent ID: {call_result.get('agent_id', 'N/A')}")
+                    print(f"   📊 Status: {call_result.get('call_status', 'N/A')}")
+                    
+                    # Update result with call information
+                    result['call_initiated'] = True
+                    result['call_result'] = call_result
+                    result['call_conversation_id'] = call_result.get('conversation_id')
+                    result['call_phone_number'] = call_result.get('phone_number')
+                    
+                    # Log to fraud logger if available
+                    if fraud_logger:
+                        try:
+                            call_log = {
+                                'step': 'elevenlabs_call',
+                                'email_id': email_id,
+                                'user_uuid': user_uuid,
+                                'company_name': company_name,
+                                'phone_number': call_result.get('phone_number'),
+                                'conversation_id': call_result.get('conversation_id'),
+                                'call_sid': call_result.get('call_sid'),
+                                'success': True
+                            }
+                            log_entries.append(call_log)
+                        except Exception as log_error:
+                            print(f"   ⚠️  Failed to log call: {str(log_error)}")
+                else:
+                    print(f"   ❌ Call failed: {call_result.get('error', 'Unknown error')}")
+                    result['call_initiated'] = False
+                    result['call_error'] = call_result.get('error')
+                    
+                    # Log failure
+                    if fraud_logger:
+                        try:
+                            call_log = {
+                                'step': 'elevenlabs_call',
+                                'email_id': email_id,
+                                'user_uuid': user_uuid,
+                                'company_name': company_name,
+                                'phone_number': online_phone,
+                                'error': call_result.get('error'),
+                                'success': False
+                            }
+                            log_entries.append(call_log)
+                        except Exception as log_error:
+                            print(f"   ⚠️  Failed to log call error: {str(log_error)}")
+                    
+            except Exception as e:
+                print(f"   ❌ Error initiating call: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                result['call_initiated'] = False
+                result['call_error'] = str(e)
+                
+                # Log exception
+                if fraud_logger:
+                    try:
+                        call_log = {
+                            'step': 'elevenlabs_call',
+                            'email_id': email_id,
+                            'user_uuid': user_uuid,
+                            'company_name': company_name,
+                            'phone_number': online_phone,
+                            'error': str(e),
+                            'success': False
+                        }
+                        log_entries.append(call_log)
+                    except:
+                        pass
+        else:
+            if not online_phone:
+                print(f"   ⏭️  No phone number found for {company_name} - skipping call")
+            else:
+                print(f"   ⏭️  Insufficient confidence ({extraction_confidence:.2f}) - skipping call")
+            result['call_initiated'] = False
+        
         # Save search results to database
         try:
             search_data = {
@@ -813,7 +934,7 @@ def verify_company_online(
         return result
 
 
-def check_billing_email_legitimacy(
+async def check_billing_email_legitimacy(
     gmail_msg: Dict[str, Any], 
     user_uuid: Optional[str] = None,
     fraud_logger: Optional[Any] = None
@@ -945,7 +1066,7 @@ def check_billing_email_legitimacy(
     all_log_entries.extend(domain_result["log_entries"])
     
     # Step 4: Verify company against whitelisted companies database
-    company_result = verify_company_against_database(
+    company_result = await verify_company_against_database(
         gmail_msg,
         user_uuid,
         fraud_logger
