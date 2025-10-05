@@ -164,12 +164,10 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
           </TabsList>
 
           <TabsContent value="emails" className="space-y-6">
-            {legitimateBillers.length > 0 && (
-              <LegitimateBillers 
-                key="persistent-billers" 
-                billers={legitimateBillers} 
-              />
-            )}
+            <LegitimateBillers 
+              key="persistent-billers" 
+              billers={legitimateBillers} 
+            />
             <EmailSearch 
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
