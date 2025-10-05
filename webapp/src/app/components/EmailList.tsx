@@ -47,15 +47,15 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'processed':
-        return 'bg-gray-600 text-white'
+        return 'bg-gray-100 text-gray-800 border-gray-300'
       case 'flagged':
-        return 'bg-red-500 text-white'
+        return 'bg-red-100 text-red-800 border-red-300'
       case 'resolved':
-        return 'bg-emerald-500 text-white'
+        return 'bg-emerald-100 text-emerald-800 border-emerald-300'
       case 'pending':
-        return 'bg-amber-500 text-white'
+        return 'bg-amber-100 text-amber-800 border-amber-300'
       default:
-        return 'bg-gray-500 text-white'
+        return 'bg-gray-100 text-gray-800 border-gray-300'
     }
   }
 
@@ -63,26 +63,26 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
     switch (label.toLowerCase()) {
       // Fraud detection labels
       case 'safe':
-        return 'bg-green-500 text-white'
+        return 'bg-green-100 text-green-800 border-green-300'
       case 'unsure':
-        return 'bg-amber-500 text-white'
+        return 'bg-amber-100 text-amber-800 border-amber-300'
       case 'fraudulent':
-        return 'bg-red-500 text-white'
+        return 'bg-red-100 text-red-800 border-red-300'
       // Email type labels  
       case 'invoice':
-        return 'bg-blue-500 text-white'
+        return 'bg-blue-100 text-blue-800 border-blue-300'
       case 'wire transfer':
-        return 'bg-purple-500 text-white'
+        return 'bg-purple-100 text-purple-800 border-purple-300'
       case 'payment':
-        return 'bg-indigo-500 text-white'
+        return 'bg-indigo-100 text-indigo-800 border-indigo-300'
       case 'bank details':
-        return 'bg-pink-500 text-white'
+        return 'bg-pink-100 text-pink-800 border-pink-300'
       case 'account update':
-        return 'bg-orange-500 text-white'
+        return 'bg-orange-100 text-orange-800 border-orange-300'
       case 'billing':
-        return 'bg-teal-500 text-white'
+        return 'bg-teal-100 text-teal-800 border-teal-300'
       default:
-        return 'bg-gray-500 text-white'
+        return 'bg-gray-100 text-gray-800 border-gray-300'
     }
   }
 
@@ -151,14 +151,16 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
               <div className="flex items-center gap-4 mr-6">
                 <div className="w-24 flex justify-end">
                   <Badge 
-                    className={`${getStatusColor(email.status)} text-xs px-3 py-1 font-medium border-0 shadow-sm`}
+                    variant="outline"
+                    className={`${getStatusColor(email.status)} text-xs px-2.5 py-0.5 font-semibold`}
                   >
                     {email.status.charAt(0).toUpperCase() + email.status.slice(1)}
                   </Badge>
                 </div>
                 <div className="w-32 flex justify-start">
                   <Badge 
-                    className={`${getLabelColor(email.label)} text-xs px-3 py-1 font-semibold border-0 shadow-sm`}
+                    variant="outline"
+                    className={`${getLabelColor(email.label)} text-xs px-2.5 py-0.5 font-semibold`}
                   >
                     {email.label.charAt(0).toUpperCase() + email.label.slice(1)}
                   </Badge>
