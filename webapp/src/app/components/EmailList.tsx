@@ -8,7 +8,7 @@ interface Email {
   subject: string
   body: string
   company: string
-  status: 'flagged' | 'resolved' | 'pending'
+  status: 'flagged' | 'resolved' | 'pending' | 'processed'
   received_at: string
   label: string
 }
@@ -43,6 +43,23 @@ function ExpandableContent({ isExpanded, children }: { isExpanded: boolean; chil
 
 export default function EmailList({ emails, onEmailClick }: EmailListProps) {
   const [expandedEmails, setExpandedEmails] = useState<Set<number>>(new Set())
+  const [logsByEmail, setLogsByEmail] = useState<Record<number, any[]>>({})
+
+  // Ensure at least 3 cards render by padding with placeholders
+  const minCards = 3
+  const placeholdersToAdd = Math.max(0, minCards - emails.length)
+  const placeholderBaseId = -1000
+  const placeholders: Email[] = Array.from({ length: placeholdersToAdd }, (_, idx) => ({
+    id: placeholderBaseId - idx,
+    sender: '—',
+    subject: 'No emails yet',
+    body: 'Connect your Gmail to see recent billing emails here.',
+    company: '—',
+    status: 'processed',
+    received_at: new Date().toISOString(),
+    label: 'billing'
+  }))
+  const displayEmails = emails.concat(placeholders)
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -120,12 +137,49 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
     const email = emails.find(e => e.id === emailId)
     if (email && !expandedEmails.has(emailId)) {
       onEmailClick?.(email)
+      // Lazy-fetch fraud logs for this email when expanding
+      if (!logsByEmail[emailId]) {
+        fetch(`/api/logs/${encodeURIComponent(String(emailId))}`)
+          .then(r => r.ok ? r.json() : Promise.reject(new Error('failed')))
+          .then(json => {
+            const logs = Array.isArray(json?.logs) ? json.logs : []
+            setLogsByEmail(prev => ({ ...prev, [emailId]: logs }))
+          })
+          .catch(() => {
+            setLogsByEmail(prev => ({ ...prev, [emailId]: [] }))
+          })
+      }
     }
+  }
+
+  const orderedSteps = [
+    'gemini_analysis',
+    'domain_check',
+    'company_verification',
+    'final_decision'
+  ] as const
+
+  const stepLabel: Record<string, string> = {
+    gemini_analysis: 'AI Analysis',
+    domain_check: 'Domain Check',
+    company_verification: 'Company Verification',
+    final_decision: 'Final Decision'
+  }
+
+  function buildStepPanels(emailId: number) {
+    const logs = logsByEmail[emailId] || []
+    const byStep: Record<string, any> = {}
+    for (const log of logs) {
+      const key = String(log.step || '').toLowerCase()
+      if (!byStep[key]) byStep[key] = log
+    }
+    const panels = orderedSteps.map(step => byStep[step] || null)
+    return panels
   }
 
   return (
     <div className="space-y-2 mx-6 mb-6">
-      {emails.map((email) => {
+      {displayEmails.map((email) => {
         const isExpanded = expandedEmails.has(email.id)
         
         return (
@@ -214,6 +268,32 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
                       <p className="text-sm text-gray-800 leading-relaxed line-clamp-3">
                         {email.body}
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Analysis Steps: 4 columns horizontally, full-height, with clear vertical dividers */}
+                  <div className="mt-3">
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Analysis Steps</span>
+                    <div className="mt-2 flex divide-x divide-gray-200 rounded-lg border border-gray-200 overflow-hidden min-h-[128px] items-stretch w-full">
+                      {buildStepPanels(email.id).map((log, idx) => (
+                        <div key={idx} className="relative flex-1 p-3 flex flex-col items-center justify-center text-center">
+                          {/* Internal centered gradient line, not touching edges */}
+                          <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 -translate-x-1/2">
+                            <div className="w-px h-full bg-gradient-to-b from-transparent via-gray-300 to-transparent" />
+                          </div>
+
+                          <div className="text-[11px] font-semibold text-gray-700 mb-1">
+                            {stepLabel[orderedSteps[idx]]}
+                          </div>
+                          {log ? (
+                            <div className="text-xs text-gray-700 leading-snug whitespace-pre-wrap break-words">
+                              {String(log.reasoning || '').slice(0, 280)}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-gray-400">—</div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
