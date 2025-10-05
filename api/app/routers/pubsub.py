@@ -724,6 +724,95 @@ async def process_test_email_background(user_id: str, user_email: str, mock_mess
         if company_verification.get('company_match'):
             company = company_verification['company_match']
             print(f"   Company: {company.get('name', 'N/A')} (ID: {company.get('id', 'N/A')})")
+        else:
+            # Company not found in database, search online
+            print(f"\n🔍 STEP 5b: Online Company Search...")
+            
+            # Extract company name from email domain or header
+            from_header = headers.get('From', '')
+            company_name = None
+            
+            # Try to extract company name from "Company Name <email@domain.com>" format
+            name_match = re.match(r'^([^<]+?)\s*<', from_header)
+            if name_match:
+                company_name = name_match.group(1).strip()
+            else:
+                # Try to extract from domain
+                domain_match = re.search(r'@([\w.-]+)', from_header)
+                if domain_match:
+                    domain = domain_match.group(1)
+                    # Get company name from domain more intelligently
+                    domain_parts = domain.split('.')
+                    if len(domain_parts) >= 2:
+                        # Remove common TLDs and split by separators
+                        base_name = domain_parts[0]
+                        # Split by common separators and capitalize
+                        words = re.split(r'[-_]', base_name)
+                        company_name = ' '.join(word.title() for word in words)
+            
+            if company_name:
+                print(f"   Searching for: {company_name}")
+                
+                # Search for company information online
+                from app.services.google_search_service import google_search_service
+                search_results = google_search_service.search_company_info(company_name)
+                
+                if search_results.get('success'):
+                    # Extract company attributes
+                    attributes = google_search_service.extract_company_attributes(search_results, company_name)
+                    print(f"   Found:")
+                    print(f"   - Phone: {attributes.get('phone_number', 'N/A')}")
+                    print(f"   - Email: {attributes.get('email', 'N/A')}")
+                    print(f"   - Website: {attributes.get('website', 'N/A')}")
+                    print(f"   - Address: {attributes.get('billing_address', 'N/A')}")
+                    print(f"   - Confidence: {attributes.get('confidence', 0):.2f}")
+                    
+                    # If we found a phone number with good confidence, try to verify by call
+                    if attributes.get('phone_number') and attributes.get('confidence', 0) >= 0.5:
+                        print(f"\n📞 STEP 5c: Phone Verification...")
+                        from app.services.eleven_agent import eleven_agent
+                        
+                        try:
+                            call_result = await eleven_agent.verify_company_by_call(
+                                company_name=company_name,
+                                phone_number=attributes['phone_number'],
+                                email=from_header
+                            )
+                            
+                            if call_result.get('success'):
+                                print(f"   ✅ Call completed")
+                                print(f"   Status: {call_result.get('call_status', 'N/A')}")
+                                print(f"   Verified: {call_result.get('verified', False)}")
+                                if call_result.get('note'):
+                                    print(f"   Note: {call_result.get('note')}")
+                            else:
+                                print(f"   ❌ Call failed: {call_result.get('error', 'Unknown error')}")
+                        except Exception as e:
+                            print(f"   ❌ Call error: {str(e)}")
+                            call_result = {'success': False, 'error': str(e)}
+                    else:
+                        print(f"   ⏭️  Skipping call verification - insufficient confidence or no phone number")
+                        call_result = None
+                    
+                    # Log online verification results
+                    fraud_logger.log_step(
+                        email_id=mock_message['id'],
+                        user_id=user_id,
+                        step='online_verification',
+                        result={
+                            'company_name': company_name,
+                            'found_attributes': attributes,
+                            'search_confidence': attributes.get('confidence', 0),
+                            'call_attempted': bool(call_result),
+                            'call_result': call_result
+                        },
+                        confidence=attributes.get('confidence', 0),
+                        reasons=[f"Online search completed with {len(search_results.get('items', []))} results"]
+                    )
+                else:
+                    print(f"   ❌ No results found online")
+            else:
+                print(f"   ❌ Could not determine company name from: {from_header}")
         
         # STEP 6: Extract invoice data if company is verified
         invoice_data = None
