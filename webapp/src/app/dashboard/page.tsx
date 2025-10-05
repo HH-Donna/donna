@@ -17,7 +17,7 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single()
 
-  if (profileError || profile) {
+  if (profileError || !profile) {
     const needsOnboarding = true
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
     fetch(`${apiUrl}/gmail/watch/setup`, {
