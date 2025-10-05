@@ -1,0 +1,9 @@
+{
+  "agents": [
+    {
+      "name": "Donna Phone Verification Agent",
+      "config_path": "agent_configs/dev/donna-phone-verification-agent.json",
+      "env": "dev"
+    }
+  ]
+}

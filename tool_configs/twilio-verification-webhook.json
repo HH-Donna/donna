@@ -1,0 +1,62 @@
+{
+  "name": "Twilio Phone Verification Webhook",
+  "description": "Webhook tool for making phone calls through Twilio for company verification",
+  "type": "webhook",
+  "config": {
+    "url": "https://your-domain.com/api/twilio/webhook",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer {{TWILIO_WEBHOOK_TOKEN}}"
+    },
+    "timeout": 30000,
+    "retry_policy": {
+      "max_retries": 3,
+      "backoff_multiplier": 2
+    }
+  },
+  "parameters": {
+    "company_name": {
+      "type": "string",
+      "description": "Name of the company to verify",
+      "required": true
+    },
+    "phone_number": {
+      "type": "string", 
+      "description": "Phone number to call for verification",
+      "required": true
+    },
+    "email_to_verify": {
+      "type": "string",
+      "description": "Email address to verify with the company",
+      "required": true
+    },
+    "verification_context": {
+      "type": "string",
+      "description": "Additional context about why verification is needed",
+      "required": false
+    }
+  },
+  "response_schema": {
+    "success": {
+      "type": "boolean",
+      "description": "Whether the call was initiated successfully"
+    },
+    "call_sid": {
+      "type": "string", 
+      "description": "Twilio Call SID for tracking"
+    },
+    "status": {
+      "type": "string",
+      "description": "Call status (initiated, completed, failed, etc.)"
+    },
+    "verified": {
+      "type": "boolean",
+      "description": "Whether the company verified the email as legitimate"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Any additional notes from the verification call"
+    }
+  }
+}
