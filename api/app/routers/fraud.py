@@ -16,6 +16,8 @@ from ...ml.domain_checker import (
     is_billing_email,
     classify_email_type_with_gemini,
     analyze_domain_legitimacy,
+    verify_company_against_database,
+    verify_company_online,
     check_billing_email_legitimacy
 )
 from ..database.supabase_client import get_supabase_client
@@ -42,11 +44,13 @@ class EmailAnalysisResponse(BaseModel):
     is_billing: bool
     email_type: str
     is_legitimate: Optional[bool]
+    is_verified: Optional[bool]  # Company verification result
     confidence: float
     reasoning: str
     halt_reason: Optional[str]  # None = proceed, string = halt reason
     log_entries: List[Dict[str, Any]]
-    status: str  # "legit", "fraud", or "pending"
+    status: str  # "legit", "fraud", "call", or "pending"
+    trigger_agent: Optional[bool]  # Whether to trigger call agent
 
 
 @router.post("/analyze", response_model=EmailAnalysisResponse)
@@ -55,13 +59,14 @@ async def analyze_email_for_fraud(
     token: str = Depends(verify_token)
 ):
     """
-    Analyze a single email for fraud using Gemini AI + domain analysis.
+    Analyze a single email for fraud using complete pipeline.
     
     This endpoint:
     1. Uses Gemini AI to classify email as bill/receipt/other
     2. Performs domain analysis on bills only
-    3. Logs all decisions to the database
-    4. Returns comprehensive analysis results
+    3. Verifies company against whitelisted companies database
+    4. Logs all decisions to the database
+    5. Returns comprehensive analysis results
     """
     try:
         # Get Supabase client
@@ -84,18 +89,24 @@ async def analyze_email_for_fraud(
         if final_log:
             last_entry = final_log[-1]
             if last_entry.get("step") == "final_decision":
-                status = "legit" if last_entry.get("decision") else "fraud"
+                if last_entry.get("decision"):
+                    status = "legit"
+                else:
+                    # Check if we should trigger agent (call) vs fraud
+                    status = "call" if result.get("trigger_agent", False) else "fraud"
         
         return EmailAnalysisResponse(
             email_id=email_id,
             is_billing=result["is_billing"],
             email_type=result["email_type"],
             is_legitimate=result["is_legitimate"],
+            is_verified=result.get("is_verified"),
             confidence=result["confidence"],
             reasoning=result["reasoning"],
             halt_reason=result.get("halt_reason"),
             log_entries=result.get("log_entries", []),
-            status=status
+            status=status,
+            trigger_agent=result.get("trigger_agent", False)
         )
         
     except Exception as e:
@@ -361,4 +372,91 @@ async def analyze_domain(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Domain analysis failed: {str(e)}"
+        )
+
+
+@router.post("/verify-company")
+async def verify_company(
+    request: EmailAnalysisRequest,
+    token: str = Depends(verify_token)
+):
+    """
+    Verify company against whitelisted companies database.
+    
+    This endpoint checks if the company from the email matches
+    an existing company in the user's whitelisted companies database
+    and compares key attributes.
+    """
+    try:
+        # Get Supabase client
+        supabase = get_supabase_client()
+        fraud_logger = create_fraud_logger(supabase)
+        
+        # Verify company against database
+        result = verify_company_against_database(
+            request.gmail_message,
+            request.user_uuid,
+            fraud_logger
+        )
+        
+        return {
+            "email_id": request.gmail_message.get("id", "unknown"),
+            "is_verified": result["is_verified"],
+            "company_match": result.get("company_match"),
+            "attribute_differences": result.get("attribute_differences", []),
+            "confidence": result["confidence"],
+            "reasoning": result["reasoning"],
+            "trigger_agent": result.get("trigger_agent", False),
+            "log_entries": result.get("log_entries", [])
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Company verification failed: {str(e)}"
+        )
+
+
+@router.post("/verify-online")
+async def verify_company_online_endpoint(
+    request: EmailAnalysisRequest,
+    company_name: str,
+    token: str = Depends(verify_token)
+):
+    """
+    Verify company online using Google Search API.
+    
+    This endpoint searches for company information online and compares
+    three attributes: billing_address, biller_phone_number, and email.
+    """
+    try:
+        # Get Supabase client
+        supabase = get_supabase_client()
+        fraud_logger = create_fraud_logger(supabase)
+        
+        # Verify company online
+        result = verify_company_online(
+            request.gmail_message,
+            request.user_uuid,
+            company_name,
+            fraud_logger
+        )
+        
+        return {
+            "email_id": request.gmail_message.get("id", "unknown"),
+            "company_name": company_name,
+            "is_verified": result["is_verified"],
+            "search_query": result["search_query"],
+            "attribute_differences": result.get("attribute_differences", []),
+            "confidence": result["confidence"],
+            "reasoning": result["reasoning"],
+            "trigger_agent": result.get("trigger_agent", False),
+            "search_results": result.get("search_results"),
+            "log_entries": result.get("log_entries", [])
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Online verification failed: {str(e)}"
         )

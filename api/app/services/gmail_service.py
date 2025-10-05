@@ -79,7 +79,10 @@ def create_gmail_service(access_token: str, refresh_token: str = None, attempt_r
             token_uri="https://oauth2.googleapis.com/token",
             client_id=os.getenv("GOOGLE_CLIENT_ID"),
             client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
-            scopes=['https://www.googleapis.com/auth/gmail.readonly']
+            scopes=[
+                'https://www.googleapis.com/auth/gmail.readonly',
+                'https://www.googleapis.com/auth/gmail.modify'  # Required for watch API
+            ]
         )
         
         # Only refresh if explicitly requested (after API failure)

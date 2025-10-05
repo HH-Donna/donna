@@ -71,6 +71,64 @@ class EmailFraudLogger:
         result = self.supabase.table("email_fraud_logs").insert(log_entry).execute()
         return result.data[0] if result.data else None
     
+    def log_company_verification(
+        self, 
+        email_id: str, 
+        user_uuid: str, 
+        company_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Log company verification results."""
+        # Decision: true if company matches and attributes are same, false if different or not found
+        decision = company_result["is_verified"]
+        
+        log_entry = {
+            "email_id": email_id,
+            "user_uuid": user_uuid,
+            "step": "company_verification",
+            "decision": decision,
+            "confidence": float(company_result["confidence"]),
+            "reasoning": company_result["reasoning"],
+            "details": {
+                "company_match": company_result.get("company_match"),
+                "attribute_differences": company_result.get("attribute_differences", []),
+                "is_verified": company_result["is_verified"],
+                "trigger_agent": company_result.get("trigger_agent", False)
+            }
+        }
+        
+        result = self.supabase.table("email_fraud_logs").insert(log_entry).execute()
+        return result.data[0] if result.data else None
+    
+    def log_online_verification(
+        self, 
+        email_id: str, 
+        user_uuid: str, 
+        online_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Log online verification results from Google Search."""
+        # Decision: true if all attributes match, false if any mismatch
+        decision = online_result["is_verified"]
+        
+        log_entry = {
+            "email_id": email_id,
+            "user_uuid": user_uuid,
+            "step": "online_verification",
+            "decision": decision,
+            "confidence": float(online_result["confidence"]),
+            "reasoning": online_result["reasoning"],
+            "details": {
+                "company_name": online_result.get("company_name"),
+                "search_query": online_result.get("search_query"),
+                "attribute_differences": online_result.get("attribute_differences", []),
+                "is_verified": online_result["is_verified"],
+                "trigger_agent": online_result.get("trigger_agent", False),
+                "search_results": online_result.get("search_results")
+            }
+        }
+        
+        result = self.supabase.table("email_fraud_logs").insert(log_entry).execute()
+        return result.data[0] if result.data else None
+    
     def log_final_decision(
         self, 
         email_id: str, 
@@ -86,8 +144,31 @@ class EmailFraudLogger:
             decision = True  # Receipts are safe, proceed
             reasoning = f"Receipt detected: {final_result.get('reasoning', 'Safe confirmation')}"
         elif final_result["email_type"] == "bill":
-            decision = final_result["is_legitimate"]  # Proceed only if legitimate
-            reasoning = f"Bill analysis: {'Legitimate' if decision else 'Suspicious domain'}"
+            # For bills, check both domain legitimacy and company verification
+            if not final_result.get("is_legitimate", True):
+                decision = False
+                reasoning = "Bill analysis: Suspicious domain"
+            elif final_result.get("is_verified", True):
+                decision = True
+                reasoning = "Bill analysis: Legitimate domain and verified company"
+            elif final_result.get("online_verified", False):
+                # Online verification completed - check if it passed
+                if final_result.get("online_is_verified", False):
+                    decision = True
+                    reasoning = "Bill analysis: Legitimate domain and online verification passed"
+                else:
+                    decision = False
+                    reasoning = f"Bill analysis: Online verification failed - {final_result.get('online_reasoning', 'Unknown issue')}"
+            else:
+                # Company verification failed - determine if it's fraud or call
+                if final_result.get("trigger_agent", False):
+                    # Company found but attributes differ - trigger call agent
+                    decision = False  # Still halt processing, but trigger agent
+                    reasoning = f"Bill analysis: Company verification failed - {final_result.get('company_reasoning', 'Unknown issue')}"
+                else:
+                    # Company not found - will need online verification (call)
+                    decision = False
+                    reasoning = f"Bill analysis: Company not found - {final_result.get('company_reasoning', 'Unknown issue')}"
         else:
             decision = False  # Unknown type, halt
             reasoning = f"Unknown email type: {final_result.get('email_type', 'other')}"
@@ -103,7 +184,7 @@ class EmailFraudLogger:
                 "complete_analysis": final_result,
                 "email_type": final_result.get("email_type"),
                 "is_legitimate": final_result.get("is_legitimate"),
-                "status": "legit" if decision else "fraud",
+                "status": "legit" if decision else ("call" if final_result.get("trigger_agent", False) or (not final_result.get("is_verified", True) and not final_result.get("online_verified", False)) else "fraud"),
                 "halt_reason": final_result.get("halt_reason")
             }
         }

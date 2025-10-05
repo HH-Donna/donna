@@ -8,7 +8,7 @@ export async function POST() {
     provider: 'google',
     options: {
       redirectTo: `${'http://localhost:3000'}/api/auth/callback`,
-      scopes: 'https://mail.google.com/ https://www.googleapis.com/auth/gmail.labels https://www.googleapis.com/auth/contacts.readonly',
+      scopes: 'https://mail.google.com/ https://www.googleapis.com/auth/gmail.labels https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/gmail.modify',
       queryParams: {
         access_type: 'offline',  // Request refresh token
         prompt: 'consent'         // Force consent screen to get refresh token
