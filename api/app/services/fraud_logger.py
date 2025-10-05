@@ -207,6 +207,39 @@ class EmailFraudLogger:
         
         return result.data if result.data else []
     
+    def log_sensitive_changes(self, email_id: str, user_uuid: str, change_data: dict) -> dict:
+        """
+        Log sensitive attribute changes detection.
+        
+        Args:
+            email_id: Gmail message ID
+            user_uuid: User UUID
+            change_data: Dictionary containing change detection results
+            
+        Returns:
+            dict: Log entry data
+        """
+        try:
+            log_entry = {
+                'email_id': email_id,
+                'user_uuid': user_uuid,
+                'step': 'sensitive_changes',
+                'decision': not change_data.get('requires_research', False),  # False if requires research
+                'confidence': 1.0 - (change_data.get('critical_count', 0) * 0.3 + change_data.get('high_count', 0) * 0.2),
+                'reasoning': f"Detected {change_data.get('total_changes', 0)} sensitive changes in {change_data.get('company_name', 'company')}",
+                'details': change_data
+            }
+            
+            response = self.supabase.table('email_fraud_logs').insert(log_entry).execute()
+            
+            if response.data:
+                return response.data[0]
+            return log_entry
+            
+        except Exception as e:
+            print(f"Error logging sensitive changes: {e}")
+            return log_entry
+    
     def get_final_decision(
         self, 
         email_id: str, 

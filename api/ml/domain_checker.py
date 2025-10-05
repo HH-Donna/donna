@@ -253,7 +253,7 @@ def is_billing_email(gmail_msg: Dict[str, Any]) -> bool:
         # Invoice terms
         "invoice", "bill", "billing", "statement", "receipt",
         # Payment terms  
-        "payment", "pay", "due", "overdue", "outstanding",
+        "payment", "pay", "outstanding",
         # Amount terms
         "amount", "total", "subtotal", "tax", "fee", "charge",
         # Account terms
@@ -1342,11 +1342,14 @@ def check_domain_legitimacy(
     # Domain analysis
     if domain_analysis["is_suspicious"]:
         reasons.extend(domain_analysis["reasons"])
+        # If suspicious, legitimacy confidence is inverse of suspicion confidence
         confidence_factors.append(1.0 - domain_analysis["confidence"])
     else:
-        confidence_factors.append(domain_analysis["confidence"])
+        # If not suspicious, legitimacy confidence is inverse of suspicion confidence
+        # Low suspicion confidence (0.15) = high legitimacy confidence (0.85)
+        confidence_factors.append(1.0 - domain_analysis["confidence"])
     
-    # Calculate overall confidence
+    # Calculate overall confidence in LEGITIMACY
     overall_confidence = sum(confidence_factors) / len(confidence_factors) if confidence_factors else 0.5
     
     # Determine legitimacy (threshold at 0.6)

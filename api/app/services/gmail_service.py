@@ -155,6 +155,155 @@ def get_user_email_address(service):
         return ''
 
 
+def get_or_create_gmail_label(service, label_name: str):
+    """
+    Get or create a custom Gmail label.
+    
+    Args:
+        service: Gmail API service
+        label_name: Name of the label (e.g., "Donna/Safe", "Donna/Fraudulent")
+        
+    Returns:
+        str: Label ID
+    """
+    try:
+        # List existing labels
+        results = service.users().labels().list(userId='me').execute()
+        labels = results.get('labels', [])
+        
+        # Check if label already exists
+        for label in labels:
+            if label['name'] == label_name:
+                return label['id']
+        
+        # Determine color based on label name
+        # Gmail only allows specific color codes from their palette
+        # See: https://developers.google.com/gmail/api/guides/labels#label_colors
+        label_colors = {
+            'Donna/Safe': {
+                'backgroundColor': '#16a766',  # Green (Gmail's palette)
+                'textColor': '#ffffff'          # White text
+            },
+            'Donna/Unsure': {
+                'backgroundColor': '#f2c960',  # Yellow (Gmail's palette)
+                'textColor': '#594c05'          # Dark text
+            },
+            'Donna/Fraudulent': {
+                'backgroundColor': '#e07798',  # Red/Pink (Gmail's palette)
+                'textColor': '#ffffff'          # White text
+            }
+        }
+        
+        # Create new label if it doesn't exist
+        label_object = {
+            'name': label_name,
+            'messageListVisibility': 'show',
+            'labelListVisibility': 'labelShow',
+            'color': label_colors.get(label_name, {
+                'backgroundColor': '#e3e3e3',  # Default gray
+                'textColor': '#666666'
+            })
+        }
+        
+        created_label = service.users().labels().create(
+            userId='me',
+            body=label_object
+        ).execute()
+        
+        print(f"   ✅ Created Gmail label: {label_name}")
+        return created_label['id']
+        
+    except Exception as e:
+        print(f"Error getting/creating label: {e}")
+        return None
+
+
+def apply_gmail_label(service, message_id: str, label_name: str):
+    """
+    Apply a custom label to a Gmail message.
+    
+    Args:
+        service: Gmail API service
+        message_id: Gmail message ID
+        label_name: Label to apply ("safe", "unsure", "fraudulent")
+        
+    Returns:
+        dict with success status
+    """
+    try:
+        # Map our labels to Gmail label names
+        label_mapping = {
+            'safe': 'Donna/Safe',
+            'unsure': 'Donna/Unsure',
+            'fraudulent': 'Donna/Fraudulent'
+        }
+        
+        gmail_label_name = label_mapping.get(label_name, f'Donna/{label_name.title()}')
+        
+        # Get or create the label
+        label_id = get_or_create_gmail_label(service, gmail_label_name)
+        
+        if not label_id:
+            return {
+                'success': False,
+                'message': 'Failed to get/create label'
+            }
+        
+        # Apply label to message
+        service.users().messages().modify(
+            userId='me',
+            id=message_id,
+            body={'addLabelIds': [label_id]}
+        ).execute()
+        
+        return {
+            'success': True,
+            'message': f'Applied label {gmail_label_name} to email {message_id}',
+            'label_id': label_id
+        }
+        
+    except Exception as e:
+        print(f"Error applying Gmail label: {e}")
+        return {
+            'success': False,
+            'message': str(e)
+        }
+
+
+def move_email_to_spam(service, message_id: str):
+    """
+    Move an email to spam/junk folder.
+    
+    Args:
+        service: Gmail API service
+        message_id: Gmail message ID
+        
+    Returns:
+        dict with success status
+    """
+    try:
+        # Add SPAM label and remove INBOX label
+        service.users().messages().modify(
+            userId='me',
+            id=message_id,
+            body={
+                'addLabelIds': ['SPAM'],
+                'removeLabelIds': ['INBOX']
+            }
+        ).execute()
+        
+        return {
+            'success': True,
+            'message': f'Email {message_id} moved to spam'
+        }
+    except Exception as e:
+        print(f"Error moving email to spam: {e}")
+        return {
+            'success': False,
+            'message': str(e)
+        }
+
+
 def get_sender_profile_picture(email_address: str, creds) -> str:
     """
     Get the profile picture URL for an email sender using Google People API.
@@ -278,7 +427,6 @@ async def get_user_emails(service, days_back: int = 90, include_attachments: boo
             'bill',
             'receipt',
             'payment',
-            'due',
             'statement',
             'charge',
             'billing',
@@ -320,7 +468,7 @@ async def get_user_emails(service, days_back: int = 90, include_attachments: boo
                 
                 # Additional invoice detection in body content
                 invoice_indicators = [
-                    'invoice', 'bill', 'receipt', 'payment', 'due', 'statement', 
+                    'invoice', 'bill', 'receipt', 'payment', 'statement', 
                     'charge', 'billing', 'subscription', 'renewal', 'amount due',
                     'total', 'subtotal', 'tax', 'payment method', 'account number',
                     'invoice number', 'bill number', 'reference number'

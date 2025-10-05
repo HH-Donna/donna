@@ -7,7 +7,8 @@ from app.services import (
     get_user_emails, 
     BillerExtractor, 
     get_user_email_address,
-    batch_get_profile_pictures
+    batch_get_profile_pictures,
+    apply_gmail_label
 )
 
 router = APIRouter(prefix="/emails", tags=["emails"])
@@ -102,6 +103,65 @@ async def fetch_user_emails(request: EmailRequest, token: str = Depends(verify_t
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred: {str(e)}"
+        )
+
+
+@router.post("/labels/test")
+async def test_gmail_labels(request: EmailRequest, token: str = Depends(verify_token)):
+    """
+    Test Gmail label creation and application.
+    Tests creating custom labels and applying them to the most recent email.
+    """
+    try:
+        # Get user's OAuth tokens
+        oauth_tokens = await get_user_oauth_token(request.user_uuid)
+        
+        # Create Gmail service
+        gmail_service, creds = create_gmail_service(
+            oauth_tokens['access_token'], 
+            oauth_tokens['refresh_token'],
+            attempt_refresh=False
+        )
+        
+        # Get most recent email
+        results = gmail_service.users().messages().list(
+            userId='me',
+            maxResults=1
+        ).execute()
+        
+        messages = results.get('messages', [])
+        if not messages:
+            return {
+                'message': 'No emails found to test labeling',
+                'success': False
+            }
+        
+        test_message_id = messages[0]['id']
+        
+        # Test all three labels
+        label_results = {}
+        for label in ['safe', 'unsure', 'fraudulent']:
+            result = apply_gmail_label(gmail_service, test_message_id, label)
+            label_results[label] = result
+            
+            if result['success']:
+                print(f"✅ Applied {label} label: {result['message']}")
+            else:
+                print(f"❌ Failed {label} label: {result['message']}")
+        
+        return {
+            'message': 'Gmail label test complete',
+            'test_message_id': test_message_id,
+            'results': label_results,
+            'success': all(r['success'] for r in label_results.values())
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Label test failed: {str(e)}"
         )
 
 

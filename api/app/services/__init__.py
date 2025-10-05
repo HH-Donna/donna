@@ -5,7 +5,10 @@ from .gmail_service import (
     get_email_attachments, 
     get_user_email_address,
     get_sender_profile_picture,
-    batch_get_profile_pictures
+    batch_get_profile_pictures,
+    move_email_to_spam,
+    apply_gmail_label,
+    get_or_create_gmail_label
 )
 from .biller_extraction import BillerExtractor
 from .attachment_parser import process_attachments, extract_text_from_attachment
@@ -19,6 +22,9 @@ __all__ = [
     "get_user_email_address", 
     "get_sender_profile_picture",
     "batch_get_profile_pictures",
+    "move_email_to_spam",
+    "apply_gmail_label",
+    "get_or_create_gmail_label",
     "BillerExtractor",
     "process_attachments",
     "extract_text_from_attachment",
