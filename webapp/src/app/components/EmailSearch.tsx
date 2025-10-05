@@ -12,7 +12,7 @@ interface EmailSearchProps {
 export default function EmailSearch({ searchQuery, onSearchChange, onFilterClick }: EmailSearchProps) {
   return (
     <>
-    <h1 className="text-black font-2xl">Emails</h1>
+    <h1 className="text-black font-2xl pl-6 font-semibold">Emails</h1>
 
         <div className="flex items-center space-x-4 mx-6">
           
