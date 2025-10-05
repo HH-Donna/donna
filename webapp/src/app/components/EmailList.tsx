@@ -45,21 +45,7 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
   const [expandedEmails, setExpandedEmails] = useState<Set<number>>(new Set())
   const [logsByEmail, setLogsByEmail] = useState<Record<number, any[]>>({})
 
-  // Ensure at least 3 cards render by padding with placeholders
-  const minCards = 3
-  const placeholdersToAdd = Math.max(0, minCards - emails.length)
-  const placeholderBaseId = -1000
-  const placeholders: Email[] = Array.from({ length: placeholdersToAdd }, (_, idx) => ({
-    id: placeholderBaseId - idx,
-    sender: '—',
-    subject: 'No emails yet',
-    body: 'Connect your Gmail to see recent billing emails here.',
-    company: '—',
-    status: 'processed',
-    received_at: new Date().toISOString(),
-    label: 'billing'
-  }))
-  const displayEmails = emails.concat(placeholders)
+  // Render exactly the emails provided; no placeholders
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -179,7 +165,7 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
 
   return (
     <div className="space-y-2 mx-6 mb-6">
-      {displayEmails.map((email) => {
+      {emails.map((email) => {
         const isExpanded = expandedEmails.has(email.id)
         
         return (
