@@ -10,9 +10,9 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 import os
 
-from ..config import verify_token
+from ..auth import verify_token
 from ..services.fraud_logger import create_fraud_logger
-from ...ml.domain_checker import (
+from ml.domain_checker import (
     is_billing_email,
     classify_email_type_with_gemini,
     analyze_domain_legitimacy,

@@ -638,6 +638,7 @@ def verify_company_online(
     parsed_data = parse_gmail_message(gmail_msg)
     subject = parsed_data.get("subject", "")
     body_text = parsed_data.get("body_text", "")
+    from_address = parsed_data.get("from_address", "")
     
     # Extract attributes from email (simplified - would use more sophisticated extraction)
     extracted_billing_address = ""  # Would extract from email content
@@ -650,24 +651,29 @@ def verify_company_online(
     try:
         # Import here to avoid circular imports
         from app.database.supabase_client import get_supabase_client
+        from app.services.google_search_service import google_search_service
         supabase = get_supabase_client()
         
-        # TODO: Implement actual Google Search API call
-        # For now, simulate the search results
-        search_results = {
-            "items": [
-                {
-                    "title": f"{company_name} Official Website",
-                    "snippet": f"{company_name} billing address: 123 Main St, City, State. Phone: (555) 123-4567. Email: billing@{company_name.lower().replace(' ', '')}.com",
-                    "link": f"https://{company_name.lower().replace(' ', '')}.com"
-                }
-            ]
-        }
+        # Perform actual Google Search API call
+        search_response = google_search_service.search_company_info(company_name)
         
-        # Extract attributes from search results (simplified)
-        online_billing_address = "123 Main St, City, State"  # Would extract from search results
-        online_phone = "(555) 123-4567"  # Would extract from search results
-        online_email = f"billing@{company_name.lower().replace(' ', '')}.com"  # Would extract from search results
+        # Extract attributes from search results
+        extracted_attributes = google_search_service.extract_company_attributes(search_response, company_name)
+        
+        online_billing_address = extracted_attributes.get('billing_address')
+        online_phone = extracted_attributes.get('phone_number')
+        online_email = extracted_attributes.get('email')
+        online_website = extracted_attributes.get('website')
+        extraction_confidence = extracted_attributes.get('confidence', 0.0)
+        
+        # Use search results from the service
+        search_results = {
+            'success': search_response.get('success', False),
+            'query': search_response.get('query', search_query),
+            'total_results': search_response.get('total_results', '0'),
+            'items': search_response.get('items', []),
+            'error': search_response.get('error')
+        }
         
         # Compare attributes
         attribute_differences = []
@@ -703,12 +709,14 @@ def verify_company_online(
         is_verified = len(attribute_differences) == 0
         trigger_agent = len(attribute_differences) > 0
         
+        # Calculate confidence based on extraction confidence and verification result
+        base_confidence = extraction_confidence
         if is_verified:
             reasoning = f"Online verification passed - all attributes match for '{company_name}'"
-            confidence = 0.85
+            confidence = min(base_confidence + 0.2, 1.0)  # Boost confidence for verified results
         else:
             reasoning = f"Online verification failed - attributes differ for '{company_name}': {', '.join([diff['attribute'] for diff in attribute_differences])}"
-            confidence = 0.75
+            confidence = max(base_confidence - 0.1, 0.1)  # Reduce confidence for failed verification
         
         result = {
             "is_verified": is_verified,
@@ -737,7 +745,10 @@ def verify_company_online(
                 'extracted_attributes': {
                     'billing_address': online_billing_address,
                     'biller_phone_number': online_phone,
-                    'email': online_email
+                    'email': online_email,
+                    'website': online_website,
+                    'extraction_confidence': extraction_confidence,
+                    'extraction_method': extracted_attributes.get('extraction_method', 'search_results')
                 },
                 'confidence': confidence
             }
