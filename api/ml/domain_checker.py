@@ -419,6 +419,370 @@ def analyze_domain_legitimacy(
     return legitimacy_result
 
 
+def verify_company_against_database(
+    gmail_msg: Dict[str, Any],
+    user_uuid: str,
+    fraud_logger: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Verify company against whitelisted companies database.
+    
+    This function checks if the company from the email matches an existing
+    company in the user's whitelisted companies database and compares
+    key attributes to ensure consistency.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        user_uuid (str): User UUID for database lookup
+        fraud_logger (EmailFraudLogger, optional): Logger instance for database logging
+        
+    Returns:
+        Dict[str, Any]: Company verification results containing:
+            - is_verified: Boolean indicating if company is verified
+            - company_match: Matched company data from database (if found)
+            - attribute_differences: List of attributes that differ
+            - confidence: Confidence score
+            - reasoning: Explanation of verification result
+            - trigger_agent: Boolean indicating if agent should be triggered
+            - log_entries: List of logged decisions (if logging enabled)
+    """
+    email_id = gmail_msg.get("id", "unknown")
+    log_entries = []
+    
+    # Parse email data to extract company information
+    parsed_data = parse_gmail_message(gmail_msg)
+    from_address = parsed_data["from_address"]
+    
+    # Extract company name from email (simplified - could be enhanced)
+    company_name = ""
+    if from_address:
+        # Extract domain and try to infer company name
+        domain = domain_from_address(from_address)
+        company_name = domain.split('.')[0].title() if domain else ""
+    
+    # Extract billing information from email content
+    # This is simplified - in practice, you'd use more sophisticated extraction
+    subject = parsed_data.get("subject", "")
+    body_text = parsed_data.get("body_text", "")
+    
+    # Try to extract billing address, phone, frequency from email content
+    # This is a simplified approach - you might want to use AI or regex patterns
+    extracted_billing_address = ""  # Would extract from email content
+    extracted_phone = ""  # Would extract from email content  
+    extracted_frequency = ""  # Would extract from email content
+    
+    try:
+        # Import here to avoid circular imports
+        from app.database.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        
+        # Search for companies by user_id and name similarity
+        companies_result = supabase.table('companies')\
+            .select('*')\
+            .eq('user_id', user_uuid)\
+            .ilike('name', f'%{company_name}%')\
+            .execute()
+        
+        if not companies_result.data:
+            # No matching company found - perform online verification
+            online_result = verify_company_online(gmail_msg, user_uuid, company_name, fraud_logger)
+            log_entries.extend(online_result["log_entries"])
+            
+            # Return online verification result
+            result = {
+                "is_verified": online_result["is_verified"],
+                "company_match": None,
+                "attribute_differences": online_result["attribute_differences"],
+                "confidence": online_result["confidence"],
+                "reasoning": f"No matching company found for '{company_name}'. {online_result['reasoning']}",
+                "trigger_agent": online_result["trigger_agent"],
+                "online_verified": True,
+                "online_is_verified": online_result["is_verified"],
+                "online_reasoning": online_result["reasoning"],
+                "log_entries": log_entries
+            }
+            
+            return result
+        
+        # Found matching company(ies) - check attributes
+        matched_company = companies_result.data[0]  # Take first match
+        
+        # Compare key attributes
+        attribute_differences = []
+        
+        # Check billing address
+        if extracted_billing_address and matched_company.get('billing_address'):
+            if extracted_billing_address.lower() != matched_company['billing_address'].lower():
+                attribute_differences.append({
+                    'attribute': 'billing_address',
+                    'expected': matched_company['billing_address'],
+                    'actual': extracted_billing_address
+                })
+        
+        # Check frequency
+        if extracted_frequency and matched_company.get('frequency'):
+            if extracted_frequency.lower() != matched_company['frequency'].lower():
+                attribute_differences.append({
+                    'attribute': 'frequency',
+                    'expected': matched_company['frequency'],
+                    'actual': extracted_frequency
+                })
+        
+        # Check phone number
+        if extracted_phone and matched_company.get('biller_phone_number'):
+            if extracted_phone != matched_company['biller_phone_number']:
+                attribute_differences.append({
+                    'attribute': 'biller_phone_number',
+                    'expected': matched_company['biller_phone_number'],
+                    'actual': extracted_phone
+                })
+        
+        # Check email address
+        if from_address and matched_company.get('contact_emails'):
+            if from_address not in matched_company['contact_emails']:
+                attribute_differences.append({
+                    'attribute': 'email',
+                    'expected': matched_company['contact_emails'],
+                    'actual': from_address
+                })
+        
+        # Determine verification result
+        is_verified = len(attribute_differences) == 0
+        trigger_agent = len(attribute_differences) > 0
+        
+        if is_verified:
+            reasoning = f"Company '{matched_company['name']}' verified - all attributes match"
+            confidence = 0.95
+        else:
+            reasoning = f"Company '{matched_company['name']}' found but attributes differ: {', '.join([diff['attribute'] for diff in attribute_differences])}"
+            confidence = 0.8
+        
+        result = {
+            "is_verified": is_verified,
+            "company_match": matched_company,
+            "attribute_differences": attribute_differences,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "trigger_agent": trigger_agent,
+            "log_entries": log_entries
+        }
+        
+        # Log company verification
+        if fraud_logger:
+            try:
+                company_log = fraud_logger.log_company_verification(email_id, user_uuid, result)
+                log_entries.append(company_log)
+                result["log_entries"] = log_entries
+            except Exception as e:
+                print(f"Warning: Failed to log company verification: {e}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error in company verification: {e}")
+        result = {
+            "is_verified": False,
+            "company_match": None,
+            "attribute_differences": [],
+            "confidence": 0.5,
+            "reasoning": f"Company verification failed: {str(e)}",
+            "trigger_agent": False,
+            "log_entries": log_entries
+        }
+        
+        # Log company verification error
+        if fraud_logger:
+            try:
+                company_log = fraud_logger.log_company_verification(email_id, user_uuid, result)
+                log_entries.append(company_log)
+                result["log_entries"] = log_entries
+            except Exception as e:
+                print(f"Warning: Failed to log company verification: {e}")
+        
+        return result
+
+
+def verify_company_online(
+    gmail_msg: Dict[str, Any],
+    user_uuid: str,
+    company_name: str,
+    fraud_logger: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Verify company online using Google Search API.
+    
+    This function searches for company information online and compares
+    three attributes: billing_address, biller_phone_number, and email.
+    
+    Args:
+        gmail_msg (Dict[str, Any]): Gmail API message JSON
+        user_uuid (str): User UUID for database lookup
+        company_name (str): Company name to search for
+        fraud_logger (EmailFraudLogger, optional): Logger instance for database logging
+        
+    Returns:
+        Dict[str, Any]: Online verification results containing:
+            - is_verified: Boolean indicating if online verification passed
+            - company_name: Company name searched
+            - search_query: Query used for search
+            - attribute_differences: List of attributes that differ
+            - confidence: Confidence score
+            - reasoning: Explanation of verification result
+            - trigger_agent: Boolean indicating if agent should be triggered
+            - log_entries: List of logged decisions (if logging enabled)
+    """
+    email_id = gmail_msg.get("id", "unknown")
+    log_entries = []
+    
+    # Parse email data to extract attributes for comparison
+    parsed_data = parse_gmail_message(gmail_msg)
+    subject = parsed_data.get("subject", "")
+    body_text = parsed_data.get("body_text", "")
+    
+    # Extract attributes from email (simplified - would use more sophisticated extraction)
+    extracted_billing_address = ""  # Would extract from email content
+    extracted_phone = ""  # Would extract from email content  
+    extracted_frequency = ""  # Would extract from email content
+    
+    # Construct search query
+    search_query = f"{company_name} billing address phone number email"
+    
+    try:
+        # Import here to avoid circular imports
+        from app.database.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        
+        # TODO: Implement actual Google Search API call
+        # For now, simulate the search results
+        search_results = {
+            "items": [
+                {
+                    "title": f"{company_name} Official Website",
+                    "snippet": f"{company_name} billing address: 123 Main St, City, State. Phone: (555) 123-4567. Email: billing@{company_name.lower().replace(' ', '')}.com",
+                    "link": f"https://{company_name.lower().replace(' ', '')}.com"
+                }
+            ]
+        }
+        
+        # Extract attributes from search results (simplified)
+        online_billing_address = "123 Main St, City, State"  # Would extract from search results
+        online_phone = "(555) 123-4567"  # Would extract from search results
+        online_email = f"billing@{company_name.lower().replace(' ', '')}.com"  # Would extract from search results
+        
+        # Compare attributes
+        attribute_differences = []
+        
+        # Check billing address
+        if extracted_billing_address and online_billing_address:
+            if extracted_billing_address.lower() != online_billing_address.lower():
+                attribute_differences.append({
+                    'attribute': 'billing_address',
+                    'expected': online_billing_address,
+                    'actual': extracted_billing_address
+                })
+        
+        # Check phone number
+        if extracted_phone and online_phone:
+            if extracted_phone != online_phone:
+                attribute_differences.append({
+                    'attribute': 'biller_phone_number',
+                    'expected': online_phone,
+                    'actual': extracted_phone
+                })
+        
+        # Check email address
+        if from_address and online_email:
+            if from_address.lower() != online_email.lower():
+                attribute_differences.append({
+                    'attribute': 'email',
+                    'expected': online_email,
+                    'actual': from_address
+                })
+        
+        # Determine verification result
+        is_verified = len(attribute_differences) == 0
+        trigger_agent = len(attribute_differences) > 0
+        
+        if is_verified:
+            reasoning = f"Online verification passed - all attributes match for '{company_name}'"
+            confidence = 0.85
+        else:
+            reasoning = f"Online verification failed - attributes differ for '{company_name}': {', '.join([diff['attribute'] for diff in attribute_differences])}"
+            confidence = 0.75
+        
+        result = {
+            "is_verified": is_verified,
+            "company_name": company_name,
+            "search_query": search_query,
+            "attribute_differences": attribute_differences,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "trigger_agent": trigger_agent,
+            "search_results": search_results,
+            "log_entries": log_entries
+        }
+        
+        # Save search results to database
+        try:
+            search_data = {
+                'email_id': email_id,
+                'user_uuid': user_uuid,
+                'company_name': company_name,
+                'search_query': search_query,
+                'billing_address': online_billing_address,
+                'biller_phone_number': online_phone,
+                'email': online_email,
+                'frequency': None,  # Not searched online
+                'search_results': search_results,
+                'extracted_attributes': {
+                    'billing_address': online_billing_address,
+                    'biller_phone_number': online_phone,
+                    'email': online_email
+                },
+                'confidence': confidence
+            }
+            
+            supabase.table('google_search_results').insert(search_data).execute()
+        except Exception as e:
+            print(f"Warning: Failed to save search results: {e}")
+        
+        # Log online verification
+        if fraud_logger:
+            try:
+                online_log = fraud_logger.log_online_verification(email_id, user_uuid, result)
+                log_entries.append(online_log)
+                result["log_entries"] = log_entries
+            except Exception as e:
+                print(f"Warning: Failed to log online verification: {e}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error in online verification: {e}")
+        result = {
+            "is_verified": False,
+            "company_name": company_name,
+            "search_query": search_query,
+            "attribute_differences": [],
+            "confidence": 0.5,
+            "reasoning": f"Online verification failed: {str(e)}",
+            "trigger_agent": True,  # Trigger agent if search fails
+            "search_results": None,
+            "log_entries": log_entries
+        }
+        
+        # Log online verification error
+        if fraud_logger:
+            try:
+                online_log = fraud_logger.log_online_verification(email_id, user_uuid, result)
+                log_entries.append(online_log)
+                result["log_entries"] = log_entries
+            except Exception as e:
+                print(f"Warning: Failed to log online verification: {e}")
+        
+        return result
+
+
 def check_billing_email_legitimacy(
     gmail_msg: Dict[str, Any], 
     user_uuid: Optional[str] = None,
@@ -430,7 +794,8 @@ def check_billing_email_legitimacy(
     This is the main orchestrator function that:
     1. First checks if email is billing-related using rule-based detection
     2. Then classifies email type using Gemini AI (bill vs receipt vs other)
-    3. Finally analyzes domain legitimacy for bills
+    3. Analyzes domain legitimacy for bills
+    4. Verifies company against whitelisted companies database
     
     Args:
         gmail_msg (Dict[str, Any]): Gmail API message JSON
@@ -443,6 +808,8 @@ def check_billing_email_legitimacy(
             - email_type: "bill", "receipt", or "other"
             - is_legitimate: Boolean indicating domain legitimacy (if bill)
             - domain_analysis: Domain analysis results (if bill)
+            - is_verified: Boolean indicating company verification (if bill)
+            - company_verification: Company verification results (if bill)
             - confidence: Confidence score
             - reasons: List of issues found (if bill)
             - reasoning: AI reasoning for billing classification
@@ -547,18 +914,33 @@ def check_billing_email_legitimacy(
     )
     all_log_entries.extend(domain_result["log_entries"])
     
+    # Step 4: Verify company against whitelisted companies database
+    company_result = verify_company_against_database(
+        gmail_msg,
+        user_uuid,
+        fraud_logger
+    )
+    all_log_entries.extend(company_result["log_entries"])
+    
     # Combine all results
     final_result = {
         "is_billing": True,
         "email_type": classification_result["email_type"],
         "is_legitimate": domain_result["is_legitimate"],
         "domain_analysis": domain_result["domain_analysis"],
-        "confidence": min(classification_result["confidence"], domain_result["confidence"]),
+        "is_verified": company_result["is_verified"],
+        "company_verification": company_result,
+        "online_verified": company_result.get("online_verified", False),
+        "online_is_verified": company_result.get("online_is_verified", False),
+        "online_reasoning": company_result.get("online_reasoning", ""),
+        "confidence": min(classification_result["confidence"], domain_result["confidence"], company_result["confidence"]),
         "reasons": domain_result["reasons"],
         "reasoning": classification_result["reasoning"],
         "parsed_data": classification_result["parsed_data"],
         "log_entries": all_log_entries,
-        "halt_reason": domain_result["halt_reason"]
+        "halt_reason": domain_result["halt_reason"] or (None if company_result["is_verified"] else "company_verification_failed"),
+        "company_reasoning": company_result["reasoning"],
+        "trigger_agent": company_result.get("trigger_agent", False)
     }
     
     # Log final decision for bills
