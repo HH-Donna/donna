@@ -9,6 +9,7 @@ from .gmail_service import (
 )
 from .biller_extraction import BillerExtractor
 from .attachment_parser import process_attachments, extract_text_from_attachment
+from .gmail_watch import setup_gmail_watch, stop_gmail_watch, should_renew_watch
 
 __all__ = [
     "create_gmail_service", 
@@ -20,5 +21,8 @@ __all__ = [
     "batch_get_profile_pictures",
     "BillerExtractor",
     "process_attachments",
-    "extract_text_from_attachment"
+    "extract_text_from_attachment",
+    "setup_gmail_watch",
+    "stop_gmail_watch",
+    "should_renew_watch"
 ]
