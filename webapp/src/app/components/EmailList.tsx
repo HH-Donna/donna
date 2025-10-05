@@ -127,7 +127,7 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
   return (
     <div className="space-y-2 mx-6 mb-6">
       {emails.map((email) => {
-        const isExpanded = expandedEmails.has(email.id)
+        const isExpanded = expandedEmails.has(email.id as any)
         
         return (
           <div
@@ -140,7 +140,7 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
           >
             <div
               className="flex items-center p-4 cursor-pointer group"
-              onClick={() => toggleExpanded(email.id)}
+              onClick={() => toggleExpanded(email.id as any)}
             >
               {/* Left: Subject and Sender */}
               <div className="flex-1 min-w-0 mr-4">
