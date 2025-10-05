@@ -12,6 +12,7 @@ import Analytics from '../components/Analytics'
 import LegitimateBillers from '../components/LegitimateBillers'
 import OnboardingForm from '../components/OnboardingForm'
 import { useEmailNotifications } from '../hooks/useEmailNotifications'
+import { Card } from '@/components/ui/card'
 
 
 interface DashboardClientProps {
@@ -139,14 +140,14 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
           <TabsList className="bg-white border border-gray-200">
             <TabsTrigger
               value="emails" 
-              className="data-[state=active]:bg-amber-500 data-[state=active]:text-white"
+              className="data-[state=active]:bg-amber-500 data-[state=active]:text-white transition-all duration-250 cursor-pointer"
               onClick={() => {
                 if (activeTab === 'emails') clearNotifications()
               }}
             >
               <div className="flex items-center">
                 <Mail className="h-4 w-4 mr-2" />
-                Email List
+                Emails
                 {newEmailCount > 0 && (
                   <Badge variant="destructive" className="ml-2 text-xs px-2 py-1">
                     {newEmailCount}
@@ -156,7 +157,7 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
             </TabsTrigger>
             <TabsTrigger 
               value="analytics" 
-              className="data-[state=active]:bg-amber-500 data-[state=active]:text-white"
+              className="data-[state=active]:bg-amber-500 data-[state=active]:text-white  transition-all duration-250 cursor-pointer"
             >
               <TrendingUp className="h-4 w-4 mr-2" />
               Analytics
@@ -168,12 +169,14 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
               key="persistent-billers" 
               billers={legitimateBillers} 
             />
+            <Card className="border-gray-200">
             <EmailSearch 
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               onFilterClick={handleFilterClick}
             />
             <EmailList emails={filteredEmails} onEmailClick={handleEmailClick} />
+            </Card>
           </TabsContent>
 
           <TabsContent value="analytics">

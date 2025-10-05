@@ -11,9 +11,11 @@ interface EmailSearchProps {
 
 export default function EmailSearch({ searchQuery, onSearchChange, onFilterClick }: EmailSearchProps) {
   return (
-    <Card className="border-gray-200">
-      <CardContent className="pt-6">
-        <div className="flex items-center space-x-4">
+    <>
+    <h1 className="text-black font-2xl">Emails</h1>
+
+        <div className="flex items-center space-x-4 mx-6">
+          
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -27,8 +29,6 @@ export default function EmailSearch({ searchQuery, onSearchChange, onFilterClick
             <Filter className="h-4 w-4 mr-2" />
             Filters
           </Button>
-        </div>
-      </CardContent>
-    </Card>
+        </div></>
   )
 }

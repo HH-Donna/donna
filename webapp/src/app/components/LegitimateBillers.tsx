@@ -53,7 +53,7 @@ function BillerDetailModal({ biller, isOpen, onClose }: { biller: Biller | null,
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
+      <div className="absolute inset-0 bg-black bg-opacity-10 " onClick={onClose} />
       
       {/* Modal */}
       <Card className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white shadow-2xl">
@@ -267,18 +267,18 @@ export default function LegitimateBillers({ billers, itemsPerPage = 4 }: Legitim
       </CardHeader>
       <CardContent>
         <div className="relative">
-          <div className="flex items-center space-x-4 overflow-hidden">
+          <div className="flex items-center space-x-4 overflow-hidden pb-4">
             {billers.slice(carouselIndex, carouselIndex + itemsPerPage).map((biller) => (
               <div
                 key={biller.id}
-                className="flex-1 min-w-0 p-4 bg-gray-50 border border-gray-200 rounded-lg hover:border-amber-500 hover:shadow-md transition-all cursor-pointer group"
+                className="flex-1 min-w-0 p-4 bg-gray-50 border border-gray-200 rounded-lg hover:shadow-md translate-y-2 hover:shadow-md transition-all cursor-pointer group"
                 onClick={() => handleBillerClick(biller)}
               >
                 <div className="flex flex-col items-center text-center space-y-2">
                   <DynamicLogo 
                     domain={biller.domain} 
                     name={biller.name}
-                    className="w-12 h-12 group-hover:scale-105 transition-transform"
+                    className="w-12 h-12 transition-transform"
                   />
                   <p className="font-semibold text-gray-900 text-xs">{biller.name}</p>
                   <p className="text-sm text-gray-500">{biller.domain}</p>
