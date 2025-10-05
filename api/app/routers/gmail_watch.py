@@ -41,15 +41,20 @@ async def setup_user_gmail_watch(request: EmailRequest, token: str = Depends(ver
             attempt_refresh=False
         )
         
+        # Get user's email address
+        from app.services import get_user_email_address
+        user_email = get_user_email_address(gmail_service)
+        
         # Set up Gmail watch
         watch_data = setup_gmail_watch(gmail_service)
         
-        # Save watch subscription to database
+        # Save watch subscription to database (with user email for matching)
         await save_gmail_watch(
             request.user_uuid,
             watch_data['history_id'],
             watch_data['expiration'],
-            watch_data['topic_name']
+            watch_data['topic_name'],
+            user_email
         )
         
         # Calculate days until expiration

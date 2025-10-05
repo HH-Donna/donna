@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from app.database.supabase_client import get_supabase_client
 
 
-async def save_gmail_watch(user_uuid: str, history_id: str, expiration: int, topic_name: str):
+async def save_gmail_watch(user_uuid: str, history_id: str, expiration: int, topic_name: str, user_email: str = None):
     """
     Save or update Gmail watch subscription for a user.
     
@@ -25,6 +25,7 @@ async def save_gmail_watch(user_uuid: str, history_id: str, expiration: int, top
         # Insert new watch subscription
         data = {
             'user_id': user_uuid,
+            'user_email': user_email,  # Store user's email for matching notifications
             'history_id': history_id,
             'expiration': int(expiration),  # Ensure it's an integer
             'topic_name': topic_name,
