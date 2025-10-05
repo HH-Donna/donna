@@ -19,9 +19,6 @@ export default async function DashboardPage() {
 
   if (profileError || !profile) {
     const needsOnboarding = true
-    
-    // Wire user to Gmail push notifications (async, don't wait)
-    // Note: This is server-side, so we call the backend API directly
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
     fetch(`${apiUrl}/gmail/watch/setup`, {
       method: 'POST',
@@ -32,8 +29,8 @@ export default async function DashboardPage() {
       body: JSON.stringify({ user_uuid: user.id })
     })
       .then(res => res.json())
-      .then(data => console.log('✅ Gmail watch setup:', data))
-      .catch(err => console.error('❌ Gmail watch setup failed:', err))
+      .then(data => console.log(' Gmail watch setup:', data))
+      .catch(err => console.error(' Gmail watch setup failed:', err))
     
     return (
       <DashboardClient 

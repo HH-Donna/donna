@@ -105,15 +105,16 @@ class EmailFraudLogger:
         user_uuid: str, 
         online_result: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Log online verification results from Google Search."""
-        # Decision: true if all attributes match, false if any mismatch
-        decision = online_result["is_verified"]
+        """Log online verification results from Google Search with new verification states."""
+        # Decision: true if verified (legit), false if needs review (call/pending)
+        decision = online_result.get("verification_status") == "legit"
         
         log_entry = {
             "email_id": email_id,
             "user_uuid": user_uuid,
             "step": "online_verification",
             "decision": decision,
+            "verification_status": online_result.get("verification_status", "pending"),
             "confidence": float(online_result["confidence"]),
             "reasoning": online_result["reasoning"],
             "details": {
@@ -122,7 +123,14 @@ class EmailFraudLogger:
                 "attribute_differences": online_result.get("attribute_differences", []),
                 "is_verified": online_result["is_verified"],
                 "trigger_agent": online_result.get("trigger_agent", False),
-                "search_results": online_result.get("search_results")
+                "search_results": online_result.get("search_results"),
+                "phone_match": online_result.get("phone_match", False),
+                "address_match": online_result.get("address_match", False),
+                "extracted_phone": online_result.get("extracted_phone"),
+                "online_phone": online_result.get("online_phone"),
+                "extracted_address": online_result.get("extracted_address"),
+                "online_address": online_result.get("online_address"),
+                "verification_status": online_result.get("verification_status", "pending")
             }
         }
         
@@ -144,31 +152,22 @@ class EmailFraudLogger:
             decision = True  # Receipts are safe, proceed
             reasoning = f"Receipt detected: {final_result.get('reasoning', 'Safe confirmation')}"
         elif final_result["email_type"] == "bill":
-            # For bills, check both domain legitimacy and company verification
+            # For bills, check both domain legitimacy and verification status
             if not final_result.get("is_legitimate", True):
                 decision = False
                 reasoning = "Bill analysis: Suspicious domain"
-            elif final_result.get("is_verified", True):
-                decision = True
-                reasoning = "Bill analysis: Legitimate domain and verified company"
-            elif final_result.get("online_verified", False):
-                # Online verification completed - check if it passed
-                if final_result.get("online_is_verified", False):
-                    decision = True
-                    reasoning = "Bill analysis: Legitimate domain and online verification passed"
-                else:
-                    decision = False
-                    reasoning = f"Bill analysis: Online verification failed - {final_result.get('online_reasoning', 'Unknown issue')}"
             else:
-                # Company verification failed - determine if it's fraud or call
-                if final_result.get("trigger_agent", False):
-                    # Company found but attributes differ - trigger call agent
-                    decision = False  # Still halt processing, but trigger agent
-                    reasoning = f"Bill analysis: Company verification failed - {final_result.get('company_reasoning', 'Unknown issue')}"
-                else:
-                    # Company not found - will need online verification (call)
+                # Check verification status from online verification
+                verification_status = final_result.get("verification_status", "pending")
+                if verification_status == "legit":
+                    decision = True
+                    reasoning = "Bill analysis: Legitimate domain and verified company (phone + address match)"
+                elif verification_status == "call":
+                    decision = False  # Halt processing, but trigger agent for phone verification
+                    reasoning = "Bill analysis: Phone verified, trigger agent for address verification"
+                else:  # pending
                     decision = False
-                    reasoning = f"Bill analysis: Company not found - {final_result.get('company_reasoning', 'Unknown issue')}"
+                    reasoning = "Bill analysis: Insufficient verification data, requires human review"
         else:
             decision = False  # Unknown type, halt
             reasoning = f"Unknown email type: {final_result.get('email_type', 'other')}"
@@ -178,13 +177,16 @@ class EmailFraudLogger:
             "user_uuid": user_uuid,
             "step": "final_decision",
             "decision": decision,
+            "verification_status": final_result.get("verification_status", "pending"),
             "confidence": float(final_result["confidence"]),
             "reasoning": reasoning,
             "details": {
                 "complete_analysis": final_result,
                 "email_type": final_result.get("email_type"),
                 "is_legitimate": final_result.get("is_legitimate"),
-                "status": "legit" if decision else ("call" if final_result.get("trigger_agent", False) or (not final_result.get("is_verified", True) and not final_result.get("online_verified", False)) else "fraud"),
+                "verification_status": final_result.get("verification_status", "pending"),
+                "phone_match": final_result.get("phone_match", False),
+                "address_match": final_result.get("address_match", False),
                 "halt_reason": final_result.get("halt_reason")
             }
         }

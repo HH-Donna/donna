@@ -10,9 +10,9 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 import os
 
-from ..config import verify_token
+from ..auth import verify_token
 from ..services.fraud_logger import create_fraud_logger
-from ...ml.domain_checker import (
+from ml.domain_checker import (
     is_billing_email,
     classify_email_type_with_gemini,
     analyze_domain_legitimacy,
@@ -446,13 +446,20 @@ async def verify_company_online_endpoint(
             "email_id": request.gmail_message.get("id", "unknown"),
             "company_name": company_name,
             "is_verified": result["is_verified"],
+            "verification_status": result.get("verification_status", "pending"),  # New field
             "search_query": result["search_query"],
             "attribute_differences": result.get("attribute_differences", []),
             "confidence": result["confidence"],
             "reasoning": result["reasoning"],
             "trigger_agent": result.get("trigger_agent", False),
             "search_results": result.get("search_results"),
-            "log_entries": result.get("log_entries", [])
+            "log_entries": result.get("log_entries", []),
+            "phone_match": result.get("phone_match", False),
+            "address_match": result.get("address_match", False),
+            "extracted_phone": result.get("extracted_phone"),
+            "online_phone": result.get("online_phone"),
+            "extracted_address": result.get("extracted_address"),
+            "online_address": result.get("online_address")
         }
         
     except Exception as e:
