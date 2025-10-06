@@ -1,0 +1,84 @@
+{
+    "name": "Donna",
+    "conversation_config": {
+        "asr": {
+            "quality": "high",
+            "provider": "elevenlabs",
+            "user_input_audio_format": "pcm_16000",
+            "keywords": []
+        },
+        "turn": {
+            "turn_timeout": 7,
+            "silence_end_call_timeout": -1,
+            "mode": "turn"
+        },
+        "tts": {
+            "model_id": "eleven_turbo_v2",
+            "voice_id": "FGY2WhTYpPnrIDTdsKH5",
+            "supported_voices": [],
+            "agent_output_audio_format": "pcm_48000",
+            "optimize_streaming_latency": 3,
+            "stability": 0.35,
+            "speed": 0.9,
+            "similarity_boost": 0.8,
+            "pronunciation_dictionary_locators": []
+        },
+        "conversation": {
+            "text_only": false,
+            "max_duration_seconds": 600,
+            "client_events": [
+                "audio",
+                "interruption",
+                "agent_response",
+                "user_transcript",
+                "agent_response_correction",
+                "agent_tool_response"
+            ]
+        },
+        "language_presets": {},
+        "vad": {
+            "background_voice_detection": false
+        },
+        "agent": {
+            "first_message": "Hi, this is Donna calling from {{customer_org}} about case {{case_id}}. {{policy_recording_notice}} I'm calling to verify an invoice we received that appears to come from {{email__vendor_name}}—invoice {{email__invoice_number}} for {{email__amount}}, due {{email__due_date}}. Are you the right person to confirm whether this was issued by your billing department?",
+            "language": "en",
+            "dynamic_variables": {
+                "dynamic_variable_placeholders": {
+                    "official_canonical_phone": "212-555-0404",
+                    "policy_recording_notice": "True",
+                    "email__due_date": "09-23-2025",
+                    "customer_org": "Pixamp, Inc",
+                    "email__billing_address": "101 Avenue of the Americas, New York, NY 10013, USA",
+                    "user__phone": "347-555-9876",
+                    "verified__rep_name": "Jessica Moore",
+                    "case_id": "shop-00123",
+                    "verified__issued_by_vendor": "Shopify, Inc",
+                    "local__phone": "347333333",
+                    "case__id": "987654321",
+                    "online__phone": "800-555-0199",
+                    "user__company_name": "Allen",
+                    "email__contact_phone": "347-555-9876",
+                    "user__account_id": "SP-98765-AL",
+                    "email__invoice_number": "ioe-300050",
+                    "email__vendor_name": "Shopify, Inc",
+                    "verified__security_contact": "security@spotify.com",
+                    "call_contact_tool": "SpotifyLiveSupport",
+                    "verified__official_contact_email": "allen@pixamp.com",
+                    "vendor__legal_name": "Spotify",
+                    "email__amount": "900",
+                    "email__contact_email": "allen@pixamp.com",
+                    "db__official_phone": "212-555-0404",
+                    "official_canonical_billing_address": "101 Avenue of the Americas, New York, NY 10013, USA",
+                    "fraud__is_suspected": "False",
+                    "official_canonical_domain": "spotify.com",
+                    "verified__ticket_id": "SP-1234567",
+                    "verified__amount": "900",
+                    "user__acct_last4": "1234",
+                    "verified__invoice_exists": "True",
+                    "verified__due_date": "09-23-2025",
+                    "rep__secure_email": "allen.support@spotify.com",
+                    "user__full_name": "Allen Taylor"
+                }
+            },
+            "disable_first_message_interruptions": false,
+            "prompt": {

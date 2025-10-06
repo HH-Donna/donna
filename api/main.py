@@ -4,6 +4,8 @@ from app.config import ALLOWED_ORIGINS
 from app.routers import emails_router, health_router, oauth_router
 from app.routers.gmail_watch import router as gmail_watch_router
 from app.routers.pubsub import router as pubsub_router
+from app.routers.twilio import router as twilio_router
+from app.routers.verification_calls import router as verification_calls_router
 
 app = FastAPI(
     title="Donna Backend API", 
@@ -26,6 +28,8 @@ app.include_router(emails_router)
 app.include_router(oauth_router)
 app.include_router(gmail_watch_router)
 app.include_router(pubsub_router)
+app.include_router(twilio_router, tags=["twilio"])
+app.include_router(verification_calls_router, tags=["verification-calls"])
 
 if __name__ == "__main__":
     import uvicorn

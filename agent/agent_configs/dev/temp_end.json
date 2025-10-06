@@ -1,0 +1,391 @@
+                "llm": "claude-sonnet-4-5",
+                "reasoning_effort": null,
+                "temperature": 0.3,
+                "max_tokens": -1,
+                "tool_ids": [
+                    "tool_7101k6sr567nfpxrsdwraad4mj77",
+                    "tool_3901k6sdzymwef1bk1k2bwfenkdm"
+                ],
+                "built_in_tools": {
+                    "end_call": {
+                        "type": "system",
+                        "name": "end_call",
+                        "description": "",
+                        "response_timeout_secs": 20,
+                        "disable_interruptions": false,
+                        "force_pre_tool_speech": false,
+                        "assignments": [],
+                        "params": {
+                            "system_tool_type": "end_call"
+                        }
+                    },
+                    "play_keypad_touch_tone": {
+                        "type": "system",
+                        "name": "play_keypad_touch_tone",
+                        "description": "",
+                        "response_timeout_secs": 20,
+                        "disable_interruptions": false,
+                        "force_pre_tool_speech": false,
+                        "assignments": [],
+                        "params": {
+                            "system_tool_type": "play_keypad_touch_tone"
+                        }
+                    },
+                    "voicemail_detection": {
+                        "type": "system",
+                        "name": "voicemail_detection",
+                        "description": "",
+                        "response_timeout_secs": 20,
+                        "disable_interruptions": false,
+                        "force_pre_tool_speech": false,
+                        "assignments": [],
+                        "params": {
+                            "system_tool_type": "voicemail_detection",
+                            "voicemail_message": "Hi this is Donna the AI Assistant for pixamp incorporated calling in regards to an invoice we received that our system flagged as fraudulent. \nim calling you to verify if the invoice was sent by you guys or it came from a malicious actor"
+                        }
+                    }
+                },
+                "mcp_server_ids": [],
+                "native_mcp_server_ids": [],
+                "knowledge_base": [],
+                "ignore_default_personality": false,
+                "rag": {
+                    "enabled": false,
+                    "embedding_model": "e5_mistral_7b_instruct",
+                    "max_vector_distance": 0.6,
+                    "max_documents_length": 50000,
+                    "max_retrieved_rag_chunks_count": 20
+                },
+                "tools": [
+                    {
+                        "type": "webhook",
+                        "name": "voice_isolator",
+                        "description": "Isolates speech from background noise in audio recordings. Use this to clean up audio files by removing unwanted ambient sounds, music, or background interference. Accepts audio files and returns cleaned audio with only the voice isolated.",
+                        "response_timeout_secs": 30,
+                        "disable_interruptions": false,
+                        "force_pre_tool_speech": false,
+                        "assignments": [],
+                        "api_schema": {
+                            "url": "https://api.elevenlabs.io/v1/audio-isolation/stream",
+                            "method": "POST",
+                            "path_params_schema": {},
+                            "request_body_schema": {
+                                "type": "object",
+                                "required": ["audio"],
+                                "description": "Audio file to process for voice isolation. Supports formats: AAC, AIFF, OGG, MP3, OPUS, WAV, FLAC, M4A. Maximum file size: 500MB, maximum length: 1 hour.",
+                                "properties": {
+                                    "audio": {
+                                        "type": "string",
+                                        "description": "Audio file to isolate voice from (multipart/form-data)",
+                                        "enum": null,
+                                        "dynamic_variable": "",
+                                        "constant_value": ""
+                                    }
+                                }
+                            },
+                            "request_headers": {
+                                "xi-api-key": {
+                                    "secret_id": "UTX88WBdpImjAJgqd2g7"
+                                },
+                                "Content-Type": {
+                                    "constant_value": "multipart/form-data"
+                                }
+                            }
+                        },
+                        "dynamic_variables": {
+                            "dynamic_variable_placeholders": {}
+                        }
+                    },
+                    {
+                        "type": "webhook",
+                        "name": "callContact_tool",
+                        "description": "Initiates a phone call using Twilio for company verification. This tool calls a vendor to verify invoice authenticity and billing information.",
+                        "response_timeout_secs": 20,
+                        "disable_interruptions": false,
+                        "force_pre_tool_speech": false,
+                        "assignments": [],
+                        "api_schema": {
+                            "url": "https://gemmiparous-parlously-coreen.ngrok-free.dev/twilio/webhook",
+                            "method": "POST",
+                            "path_params_schema": {},
+                            "request_body_schema": {
+                                "type": "object",
+                                "required": [
+                                    "phone_number",
+                                    "company_name"
+                                ],
+                                "description": "{\n  \"phone_number\": \"3473580012\",\n  \"company_name\": \"Acme Corp\",\n  \"invoice_id\": \"INV-123\",\n  \"customer_org\": \"Pixamp Inc\",\n  \"vendor_legal_name\": \"Acme Corporation\"\n}",
+                                "properties": {
+                                    "customer_org": {
+                                        "type": "string",
+                                        "description": "Customer organization name (e.g., \"Pixamp Inc\")\n",
+                                        "enum": null,
+                                        "dynamic_variable": "",
+                                        "constant_value": ""
+                                    },
+                                    "phone_number": {
+                                        "type": "string",
+                                        "description": "The contact's phone number to call for verification",
+                                        "enum": null,
+                                        "dynamic_variable": "",
+                                        "constant_value": ""
+                                    },
+                                    "vendor_legal_name": {
+                                        "type": "string",
+                                        "description": "Vendor's legal business name",
+                                        "enum": null,
+                                        "dynamic_variable": "",
+                                        "constant_value": ""
+                                    },
+                                    "company_name": {
+                                        "type": "string",
+                                        "description": "Name of the company to verify",
+                                        "enum": null,
+                                        "dynamic_variable": "",
+                                        "constant_value": ""
+                                    },
+                                    "invoice_id": {
+                                        "type": "string",
+                                        "description": "Invoice ID or reference number to verify",
+                                        "enum": null,
+                                        "dynamic_variable": "",
+                                        "constant_value": ""
+                                    }
+                                }
+                            },
+                            "request_headers": {}
+                        },
+                        "dynamic_variables": {
+                            "dynamic_variable_placeholders": {}
+                        }
+                    },
+                    {
+                        "type": "system",
+                        "name": "end_call",
+                        "description": "",
+                        "response_timeout_secs": 20,
+                        "disable_interruptions": false,
+                        "force_pre_tool_speech": false,
+                        "assignments": [],
+                        "params": {
+                            "system_tool_type": "end_call"
+                        }
+                    },
+                    {
+                        "type": "system",
+                        "name": "play_keypad_touch_tone",
+                        "description": "",
+                        "response_timeout_secs": 20,
+                        "disable_interruptions": false,
+                        "force_pre_tool_speech": false,
+                        "assignments": [],
+                        "params": {
+                            "system_tool_type": "play_keypad_touch_tone"
+                        }
+                    },
+                    {
+                        "type": "system",
+                        "name": "voicemail_detection",
+                        "description": "",
+                        "response_timeout_secs": 20,
+                        "disable_interruptions": false,
+                        "force_pre_tool_speech": false,
+                        "assignments": [],
+                        "params": {
+                            "system_tool_type": "voicemail_detection",
+                            "voicemail_message": "Hi this is Donna the AI Assistant for pixamp incorporated calling in regards to an invoice we received that our system flagged as fraudulent. \nim calling you to verify if the invoice was sent by you guys or it came from a malicious actor"
+                        }
+                    }
+                ]
+            }
+        }
+    },
+    "platform_settings": {
+        "auth": {
+            "enable_auth": false,
+            "allowlist": []
+        },
+        "evaluation": {
+            "criteria": [
+                {
+                    "id": "ambiguity_handling_unknown_result",
+                    "name": "Ambiguity Handling (Unknown Result)",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "When evidence is incomplete or conflicting, the evaluator must mark the result as “unknown.”\nMark as unknown if key information is missing, representative responses contradict, transcript is cut off, or fields are redacted.\nNever infer success or failure without clear support in the transcript.\nInstruction: Always prefer “unknown” over assumption. Include a short explanation of what information was missing or unclear.\nExamples:\nUnknown — Vendor says “maybe,” or both “yes” and “no” appear in transcript.\nUnknown — Transcript stops mid-verification.\nUnknown — Missing JSON fields or inaudible recording section.",
+                    "use_knowledge_base": false
+                },
+                {
+                    "id": "vendor_satisfaction_signal",
+                    "name": "Vendor Satisfaction Signal",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "The call should end with cooperation or at least neutral acknowledgment from the vendor.\nMark as success if the representative responds positively or neutrally and the agent closes politely.\nMark as failure if the representative shows frustration or the agent closes rudely or abruptly.\nMark as unknown if the call ends due to transfer or external cutoff.\nExamples:\nSuccess — Rep: “Thanks for checking.” Agent: “Appreciate your help.”\nFailure — Rep: “You’re wasting my time.”\nUnknown — Call ends before closing exchange.",
+                    "use_knowledge_base": false
+                },
+                {
+                    "id": "database_update_recommendation",
+                    "name": "Database Update Recommendation",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "When the vendor confirms legitimate updates to their data, the agent should acknowledge and suggest updating internal records.\nMark as success if the agent confirms new information and states intent to update.\nMark as failure if vendor provides new data and agent ignores it.\nMark as unknown if vendor mentions a change but no details or response are given.\nExamples:\nSuccess — “Got it, new address and phone ending in 4421 — I’ll recommend an update.”\nFailure — Vendor says they changed domain, agent moves on.\nUnknown — “We updated our records recently,” with no further clarification.",
+                    "use_knowledge_base": false
+                },
+                {
+                    "id": "error_handling_and_fallbacks",
+                    "name": "Error Handling and Fallbacks",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "When incomplete or unclear data prevents resolution, the agent must follow correct fallback protocols.\nMark as success if the agent schedules a follow-up, sends a verification email, or otherwise escalates properly instead of guessing.\nMark as failure if the agent assumes a result without confirmation or action.\nMark as unknown if uncertainty is acknowledged but no clear next step is taken.\nExamples:\nSuccess — “I’ll email billing@officialdomain.com\n to confirm in writing.”\nFailure — “Probably legitimate; marking as such.”\nUnknown — “I’ll follow up” without any recorded plan.",
+                    "use_knowledge_base": false
+                },
+                {
+                    "id": "fraudlogic_adherence",
+                    "name": "Fraud-Logic Adherence",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "The agent must follow the defined verification decision tree, comparing data across the email, internal database, and official source.\nMark as success if the agent checks for discrepancies, asks whether changes were made, and follows the correct branch to resolution.\nMark as failure if discrepancies are ignored, or the agent makes an incorrect assumption about status.\nMark as unknown if a mismatch is mentioned but no follow-up logic is applied.\nExamples:\nSuccess — Vendor denies any change; agent escalates: “Did you send this invoice?” Vendor: “No.” Agent: “Marking fraud.”\nFailure — Data mismatch exists but agent calls it legitimate.\nUnknown — Agent notes difference and ends call without asking for confirmation.",
+                    "use_knowledge_base": false
+                },
+                {
+                    "id": "conversational_clarity_and_professionalism",
+                    "name": "Conversational Clarity and Professionalism",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "\n The agent must maintain clear, factual, polite communication throughout, with a concise closing summary.\nMark as success if the agent uses clear confirmations, maintains composure, avoids slang or filler, and closes with a polite acknowledgment and summary.\nMark as failure if the agent rambles, interrupts, or ends abruptly without summarizing next steps.\nMark as unknown if the transcript ends before a closing summary.\nExamples:\nSuccess — “To confirm, your billing info hasn’t changed. I’ll mark this as fraud. Thank you for verifying.”\nFailure — “Uh, yeah, okay, bye.”\nUnknown — Transfer or dropped call before conclusion.",
+                    "use_knowledge_base": false
+                },
+                {
+                    "id": "compliance_and_security_protocol",
+                    "name": "Compliance and Security Protocol",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "The agent must always begin with the required compliance introduction and follow least-privilege disclosure rules.\nMark as success if the agent announces their identity, purpose, case ID, customer organization, and policy notice before proceeding.\nMark as failure if the notice is skipped, if the agent shares internal information unprompted, or continues after a refusal without offering a secure option.\nMark as unknown if the transcript does not include the introduction segment.\nExamples:\nSuccess — “Hi, this is Donna calling about case 004 from Pixamp, Inc. I’m an AI assistant; this call is recorded...”\nFailure — Agent gives out full customer record without prompt.\nUnknown — Transcript begins mid-call.",
+                    "use_knowledge_base": false
+                },
+                {
+                    "id": "information_retrieval_accuracy",
+                    "name": "information Retrieval Accuracy",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "Definition: The agent must provide accurate, relevant details from the knowledge base or JSON context when requested by the vendor representative.\nMark as success if the provided information matches the known values and is limited to what was asked for.\nMark as failure if the agent provides incorrect data, fabricates information, or reveals unnecessary sensitive details.\nMark as unknown if the transcript lacks the actual values given or it’s impossible to confirm their correctness.\nExamples:\nSuccess — Rep asks for account number; agent gives correct last-4 digits.\nFailure — Rep asks for domain; agent discloses unrelated customer email.\nUnknown — Agent references data without specifying what it is.",
+                    "use_knowledge_base": false
+                },
+                {
+                    "id": "goal_completion",
+                    "name": "goal completion",
+                    "type": "prompt",
+                    "conversation_goal_prompt": "Definition: The call must reach a clear, explicit outcome regarding whether the invoice in question is authentic.\nMark as success if the agent secures confirmation from a verified vendor representative and states one of the accepted statuses: “legit”, “fraud”, or “await follow-up.”\nMark as failure if the call ends without a determination, if the agent contradicts the representative’s confirmation, or if the final label is incorrect.\nMark as unknown if the transcript ends mid-verification or the representative never answers the verification question.\nExamples:\nSuccess — Vendor: “Yes, we issued invoice #9471.” Agent: “Marking legit.”\nFailure — Vendor denies sending, but agent ends the call without labeling outcome.\nUnknown — Call drops before verification can occur.",
+                    "use_knowledge_base": false
+                }
+            ]
+        },
+        "widget": {
+            "variant": "full",
+            "placement": "bottom-right",
+            "expandable": "never",
+            "avatar": {
+                "type": "orb",
+                "color1": "#2792dc",
+                "color2": "#9ce6e6"
+            },
+            "feedback_mode": "during",
+            "bg_color": "#ffffff",
+            "text_color": "#000000",
+            "btn_color": "#000000",
+            "btn_text_color": "#ffffff",
+            "border_color": "#e1e1e1",
+            "focus_color": "#000000",
+            "shareable_page_show_terms": true,
+            "terms_text": "#### Terms and conditions\n\nBy clicking \"Agree,\" and each time I interact with this AI agent, I consent to the recording, storage, and sharing of my communications with third-party service providers, and as described in the Privacy Policy.\nIf you do not wish to have your conversations recorded, please refrain from using this service.",
+            "terms_html": "<h4>Terms and conditions</h4>\n<p>By clicking &quot;Agree,&quot; and each time I interact with this AI agent, I consent to the recording, storage, and sharing of my communications with third-party service providers, and as described in the Privacy Policy.\nIf you do not wish to have your conversations recorded, please refrain from using this service.</p>\n",
+            "show_avatar_when_collapsed": false,
+            "disable_banner": false,
+            "mic_muting_enabled": false,
+            "transcript_enabled": false,
+            "text_input_enabled": true,
+            "default_expanded": false,
+            "always_expanded": false,
+            "text_contents": {},
+            "styles": {},
+            "language_selector": false,
+            "supports_text_only": true,
+            "language_presets": {}
+        },
+        "data_collection": {
+            "is_fraudulent": {
+                "type": "boolean",
+                "description": "true if the vendor denied issuance or confirmed no changes and details differ from the email; false if the vendor confirmed issuance and details align or confirmed legitimate changes that explain the mismatch. If neither condition is satisfied, do not guess; return unknown for evaluation with a rationale and omit the boolean value from downstream use.\nMark success if the boolean matches the vendor’s explicit position plus the comparison logic stated in the transcript (denial → true; confirmation with matching/legitimate changes → false).\nMark failure if the boolean contradicts the transcript (e.g., rep denies issuance but field set to false), or if it is inferred without explicit confirmation.\nMark unknown if the representative never clearly confirms or denies issuance and the change-check is inconclusive.\nExamples:\nSuccess — Rep: “We did not send that invoice.” → is_fraudulent: true. Rep: “Yes, we issued it; we changed our domain last month to example.co.” → is_fraudulent: false.\nFailure — Rep: “No change and we didn’t send it,” but is_fraudulent: false.\nUnknown — Rep: “I’m not sure; billing isn’t here” and no written follow-up captured.",
+                "enum": null,
+                "dynamic_variable": "",
+                "constant_value": ""
+            },
+            "verified_vendor_facts": {
+                "type": "string",
+                "description": "a compact, comma-separated string of the vendor details explicitly verified by the representative during the call, limited to fields that were actually confirmed or corrected on the call. Allowed fields: official_billing_address, official_phone, official_domain, official_contact_email, account_last4, invoice_number. Include only values that the rep stated or affirmed verbatim (or last-4 derived as read by the agent and confirmed by the rep).\nMark success if the field contains only rep-verified items, each traceable to a specific turn (e.g., “official_domain=aws.amazon.com, official_phone=1-800-XXX-XXXX, account_last4=4421”).\nMark failure if it includes values never verified aloud, sensitive customer data not requested by the rep, or values copied from the scam email without confirmation.\nMark unknown if the rep refused to verify any facts or the transcript lacks the verification moments.\nExamples:\nSuccess — “official_domain=vendor.com, official_phone=+1-212-555-0199, account_last4=4421.”\nFailure — “customer_full_address=…; user_email=…;” (not allowed or not requested).\nUnknown — “Rep declined to verify; requested written inquiry to billing@vendor.com\n.",
+                "enum": null,
+                "dynamic_variable": "",
+                "constant_value": ""
+            },
+            "reasoning_trace": {
+                "type": "string",
+                "description": "a step-by-step chain describing how the agent progressed from initial goal to outcome: (a) opened with compliance notice, (b) presented suspected invoice context, (c) compared fields (official vs database vs email), (d) asked “have your details changed?”, (e) asked “did you send this invoice?”, (f) reconciled answers, (g) declared status or initiated fallback. Use numbered steps, 1–8 lines. No speculation beyond transcript.\nMark success if each step aligns with actual utterances in order and includes the decisive statements that led to the outcome or fallback.\nMark failure if steps are out of order, omit the change-check or issuance question when mismatches existed, or insert unspoken assumptions.\nMark unknown if the transcript lacks enough content to reconstruct the path (e.g., jumps from greeting to goodbye).\nExamples:\nSuccess — “1. Agent gave recording notice. 2. Asked about invoice #9471. 3. Confirmed official phone/domain from site. 4. Rep denied any changes. 5. Agent asked if invoice was sent. 6. Rep said no. 7. Agent marked fraud and committed to email follow-up.”\nFailure — “Skipped steps; directly marked legit without asking about changes.”\nUnknown — “Only greeting captured; rest missing.”",
+                "enum": null,
+                "dynamic_variable": "",
+                "constant_value": ""
+            },
+            "summarized_transcript": {
+                "type": "string",
+                "description": "a concise, factual summary (3–6 sentences) of what happened in the call, including who was called, the purpose (invoice verification), the key verification questions asked, the vendor’s explicit confirmation/denial, any data points exchanged (addresses, account last-4, phone, domain), and the final next-step stated by the agent.\nMark success if the summary cleanly captures: the vendor’s stance on whether they issued the invoice, the presence or absence of changes to billing/contact details, the specific identifiers referenced (e.g., invoice #, domain, last-4), and the agent’s stated outcome or follow-up.\nMark failure if the summary is missing any of the following: vendor confirmation/denial, the mismatch/change check, or the agent’s outcome/next-step; or if it introduces facts not present in the transcript.\nMark unknown if the transcript ends before a clear exchange on issuance or changes, or if critical parts are redacted/inaudible.\nExamples:\nSuccess — “Agent verified vendor identity, asked if invoice #9471 was issued; rep denied, confirmed no changes to billing address/phone/domain; agent stated ‘marking fraud and emailing your official address for a written note.’”\nFailure — “General chat about invoices” (omits issuance answer and outcome).\nUnknown — “Call disconnected after greeting; no verification occurred.”",
+                "enum": null,
+                "dynamic_variable": "",
+                "constant_value": ""
+            }
+        },
+        "overrides": {
+            "conversation_config_override": {
+                "tts": {
+                    "voice_id": false,
+                    "stability": false,
+                    "speed": false,
+                    "similarity_boost": false
+                },
+                "conversation": {
+                    "text_only": true
+                },
+                "agent": {
+                    "first_message": false,
+                    "language": true,
+                    "prompt": {
+                        "prompt": false,
+                        "native_mcp_server_ids": false
+                    }
+                }
+            },
+            "custom_llm_extra_body": false,
+            "enable_conversation_initiation_client_data_from_webhook": false
+        },
+        "call_limits": {
+            "agent_concurrency_limit": -1,
+            "daily_limit": 100000,
+            "bursting_enabled": true
+        },
+        "ban": null,
+        "privacy": {
+            "record_voice": false,
+            "retention_days": 7,
+            "delete_transcript_and_pii": true,
+            "delete_audio": true,
+            "apply_to_existing_conversations": false,
+            "zero_retention_mode": false
+        },
+        "workspace_overrides": {
+            "webhooks": {
+                "send_audio": false
+            }
+        },
+        "testing": {
+            "attached_tests": [],
+            "referenced_tests_ids": []
+        },
+        "archived": false,
+        "safety": {
+            "is_blocked_ivc": false,
+            "is_blocked_non_ivc": false,
+            "ignore_safety_evaluation": false
+        }
+    },
+    "tags": ["environment:dev", "testing", "updated:2025-10-05"]
+}

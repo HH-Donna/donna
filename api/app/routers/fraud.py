@@ -4,7 +4,7 @@ Email Fraud Analysis API Endpoints
 This module provides API endpoints for fraud detection and logging.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import HTTPBearer
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
@@ -56,7 +56,9 @@ class EmailAnalysisResponse(BaseModel):
 @router.post("/analyze", response_model=EmailAnalysisResponse)
 async def analyze_email_for_fraud(
     request: EmailAnalysisRequest,
-    token: str = Depends(verify_token)
+    background_tasks: BackgroundTasks,
+    token: str = Depends(verify_token),
+    auto_trigger_call: bool = True
 ):
     """
     Analyze a single email for fraud using complete pipeline.
@@ -66,7 +68,11 @@ async def analyze_email_for_fraud(
     2. Performs domain analysis on bills only
     3. Verifies company against whitelisted companies database
     4. Logs all decisions to the database
-    5. Returns comprehensive analysis results
+    5. Automatically triggers verification call if needed (unsure emails)
+    6. Returns comprehensive analysis results
+    
+    Args:
+        auto_trigger_call: If True, automatically triggers verification call for unsure emails
     """
     try:
         # Get Supabase client
@@ -85,15 +91,40 @@ async def analyze_email_for_fraud(
         
         # Determine status from final decision
         final_log = result.get("log_entries", [])
-        status = "pending"
+        email_status = "pending"
         if final_log:
             last_entry = final_log[-1]
             if last_entry.get("step") == "final_decision":
                 if last_entry.get("decision"):
-                    status = "legit"
+                    email_status = "legit"
                 else:
                     # Check if we should trigger agent (call) vs fraud
-                    status = "call" if result.get("trigger_agent", False) else "fraud"
+                    email_status = "call" if result.get("trigger_agent", False) else "fraud"
+        
+        # 🚀 AUTOMATIC CALL TRIGGER: If status is "call" or "unsure", trigger verification call
+        if auto_trigger_call and (email_status == "call" or result.get("trigger_agent", False)):
+            try:
+                from services.email_to_call_service import trigger_verification_call
+                
+                # Prepare email data for call service
+                email_data = {
+                    "id": email_id,
+                    "label": "unsure",
+                    "vendor_name": request.gmail_message.get("from", "Unknown"),
+                    # Add more fields as needed from gmail_message
+                }
+                
+                # Trigger call in background
+                background_tasks.add_task(
+                    trigger_verification_call,
+                    email_data=email_data
+                )
+                
+                print(f"🚀 Verification call scheduled for email {email_id}")
+                
+            except Exception as call_error:
+                print(f"⚠️ Failed to trigger call for email {email_id}: {call_error}")
+                # Don't fail the whole request if call trigger fails
         
         return EmailAnalysisResponse(
             email_id=email_id,
@@ -105,7 +136,7 @@ async def analyze_email_for_fraud(
             reasoning=result["reasoning"],
             halt_reason=result.get("halt_reason"),
             log_entries=result.get("log_entries", []),
-            status=status,
+            status=email_status,
             trigger_agent=result.get("trigger_agent", False)
         )
         
