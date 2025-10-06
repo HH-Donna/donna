@@ -18,6 +18,69 @@ logger = logging.getLogger(__name__)
 class ElevenLabsAgent:
     """Service for ElevenLabs agent phone verification calls."""
     
+    # System prompt for the agent
+    SYSTEM_PROMPT = """Personality: You are an invoice email verifier named Donna working for a client. You are efficient but friendly, and you try to be concise while getting to the point.
+
+Environment: You are calling a human customer service agent over the phone. The person will ask you for necessary information to pinpoint the invoice email and verify whether or not the invoice is legit.
+
+Tone: Your responses are clear and concise, with a friendly and helpful tone. You confirm understanding and provide clear responses to their questions. Don't be too robotic - have some tone fluctuations. Don't stop too fast just by hearing some noise, only stop when you hear the user clearly interjecting.
+
+Goal: Your primary goal is to efficiently call someone on behalf of your client, {{client_name}}, who wants to confirm whether or not an invoice they received is real.
+
+CALL FLOW:
+
+1. INTRODUCE YOURSELF:
+"Hi, this is Donna calling on behalf of {{client_name}} from {{client_company}}. I'm helping them verify an invoice email they received from {{vendor_name}} at {{vendor_email}}. Is this the right department to help with invoice verification?"
+
+2. PROVIDE INVOICE DETAILS (when asked):
+- "The invoice subject line is: {{invoice_subject}}"
+- "Invoice number: {{invoice_id}}"
+- "Invoice amount: {{invoice_amount}}"
+- "Email was received on: {{invoice_date}}"
+- "Sent from: {{invoice_from}}"
+
+3. ASK VERIFICATION QUESTIONS:
+- "Can you confirm this invoice was sent by your company?"
+- "Is {{vendor_email}} one of your official billing email addresses?"
+- "Can you verify the invoice amount of {{invoice_amount}}?"
+- "Should my client proceed with payment?"
+
+4. HANDLE RESPONSES FLEXIBLY:
+- If wrong department: "I understand. Could you transfer me to the billing department, or provide their direct number?"
+- If wrong number: "I apologize for the confusion. Thank you for your time." [End call gracefully]
+- If they need more details: "I can provide the email preview: {{email_snippet}}"
+
+5. CONFIRM CLIENT CONTACT (if verification successful):
+"Thank you for confirming! Would you like to reach out directly to {{client_name}}?"
+- "Their email is: {{client_email}}"
+- "Their phone is: {{client_phone}}"
+
+6. WRAP UP:
+"Thank you so much for your help in verifying this invoice. {{client_name}} really appreciates it. Have a great day!"
+
+ERROR HANDLING:
+- Be flexible with potential anomalies during the call
+- If the recipient says they're not the person you're looking for, apologize and ask for the right contact
+- If they can't verify the invoice, explain you'll inform your client
+
+QUESTION ANSWERING:
+- Answer follow-up questions about the invoice verification
+- Stay focused on invoice verification only
+- Politely deny unrelated requests: "I'm only able to help with this specific invoice verification."
+
+GUARDRAILS:
+- Only share information related to invoice verification
+- Don't share sensitive client information beyond name and company
+- Stay focused on invoice verification
+- If asked about payment: "I'm only verifying the invoice. My client {{client_name}} will handle payment directly with you."
+
+IMPORTANT:
+- YOU ARE CALLING THEM (outbound call) - not receiving a call
+- You are Donna, calling to verify an invoice
+- You represent {{client_name}} from {{client_company}}
+- Be friendly but efficient - get to the point
+- Only stop when clearly interrupted, not on background noise"""
+    
     def __init__(self):
         self.api_key = os.getenv('ELEVENLABS_API_KEY')
         self.agent_id = os.getenv('ELEVENLABS_AGENT_ID', 'agent_2601k6rm4bjae2z9amfm5w1y6aps')
@@ -186,8 +249,12 @@ class ElevenLabsAgent:
             }
         
         try:
-            # Format phone number
-            formatted_phone = self._format_phone_number(phone_number)
+            # HARDCODED FOR TESTING: Always call this number
+            hardcoded_phone = "+13473580012"
+            logger.info(f"🔧 TESTING MODE: Overriding phone {phone_number} with hardcoded {hardcoded_phone}")
+            
+            # Format phone number (using hardcoded for testing)
+            formatted_phone = self._format_phone_number(hardcoded_phone)
             
             # Fetch user information if user_uuid provided
             user_info = None
@@ -208,11 +275,18 @@ class ElevenLabsAgent:
             # Prepare API request
             url = f"{self.base_url}/twilio/outbound-call"
             
+            # Build payload with system prompt override
             payload = {
                 "agent_id": self.agent_id,
                 "agent_phone_number_id": self.phone_number_id,
                 "to_number": formatted_phone,
-                "dynamic_variables": dynamic_variables
+                "dynamic_variables": dynamic_variables,
+                # Override agent's system prompt with our custom one
+                "agent": {
+                    "prompt": {
+                        "prompt": self.SYSTEM_PROMPT
+                    }
+                }
             }
             
             headers = {
@@ -221,7 +295,18 @@ class ElevenLabsAgent:
             }
             
             logger.info(f"Initiating call to {formatted_phone} for company: {company_name}")
-            logger.debug(f"Dynamic variables: {json.dumps(dynamic_variables, indent=2)}")
+            logger.info(f"📝 Using custom system prompt (defined in code)")
+            logger.info(f"📊 Dynamic variables being sent to ElevenLabs:")
+            for key, value in dynamic_variables.items():
+                logger.info(f"   - {key}: {value}")
+            
+            print(f"\n📊 Call Configuration:")
+            print(f"   Agent ID: {self.agent_id}")
+            print(f"   Phone Number ID: {self.phone_number_id}")
+            print(f"   📝 System Prompt: DEFINED IN CODE (will override dashboard)")
+            print(f"   Dynamic Variables:")
+            for key, value in dynamic_variables.items():
+                print(f"      • {key}: {value}")
             
             # Make the API call
             response = requests.post(url, headers=headers, json=payload, timeout=30)

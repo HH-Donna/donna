@@ -109,6 +109,70 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
     }
   }
 
+  const cleanEmailBody = (body: string): string => {
+    if (!body) return 'No content available'
+
+    let cleaned = body
+    
+    // Remove everything from "=== ATTACHMENTS ===" onwards
+    const attachmentIndex = cleaned.indexOf('=== ATTACHMENTS ===')
+    if (attachmentIndex !== -1) {
+      cleaned = cleaned.substring(0, attachmentIndex)
+    }
+    
+    // Remove HTML tags
+    cleaned = cleaned.replace(/<[^>]*>/g, '')
+    
+    // Decode common HTML entities
+    const htmlEntities: Record<string, string> = {
+      '&nbsp;': ' ',
+      '&amp;': '&',
+      '&lt;': '<',
+      '&gt;': '>',
+      '&quot;': '"',
+      '&#39;': "'",
+      '&apos;': "'",
+      '&ndash;': '\u2013',
+      '&mdash;': '\u2014',
+      '&rsquo;': '\u2019',
+      '&lsquo;': '\u2018',
+      '&rdquo;': '\u201D',
+      '&ldquo;': '\u201C'
+    }
+    
+    Object.entries(htmlEntities).forEach(([entity, char]) => {
+      cleaned = cleaned.replace(new RegExp(entity, 'g'), char)
+    })
+    
+    // Decode numeric HTML entities
+    cleaned = cleaned.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
+    cleaned = cleaned.replace(/&#x([0-9A-Fa-f]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
+    
+    // Remove URLs (optional - keeps text cleaner)
+    cleaned = cleaned.replace(/https?:\/\/[^\s]+/g, '')
+    
+    // Remove email addresses in <> brackets
+    cleaned = cleaned.replace(/<[^@\s]+@[^@\s]+\.[^@\s]+>/g, '')
+    
+    // Remove lines that are just dashes/separators (4 or more dashes in a row)
+    cleaned = cleaned.replace(/[\r\n\s]*[-=_*]{4,}[\r\n\s]*/g, ' ')
+    
+    // Remove excessive whitespace, newlines, tabs
+    cleaned = cleaned.replace(/[\r\n\t]+/g, ' ')
+    cleaned = cleaned.replace(/\s{2,}/g, ' ')
+    
+    // Remove special characters that are often formatting artifacts
+    cleaned = cleaned.replace(/[|~`\[\]{}]/g, '')
+    
+    // Remove multiple punctuation
+    cleaned = cleaned.replace(/([.!?])\1+/g, '$1')
+    
+    // Trim and ensure we have content
+    cleaned = cleaned.trim()
+    
+    return cleaned || 'No readable content available'
+  }
+
   const toggleExpanded = (emailId: number | string) => {
     const idKey = String(emailId)
     setExpandedEmails(prev => {
@@ -127,42 +191,59 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
       onEmailClick?.(email)
       // Lazy-fetch fraud logs for this email when expanding
       if (!logsByEmail[idKey]) {
+        console.log('🔍 Fetching logs for email ID:', idKey)
         fetch(`/api/logs/${encodeURIComponent(idKey)}`)
-          .then(r => r.ok ? r.json() : Promise.reject(new Error('failed')))
+          .then(r => {
+            console.log('📡 API Response status:', r.status)
+            return r.ok ? r.json() : Promise.reject(new Error('failed'))
+          })
           .then(json => {
+            console.log('📊 API Response JSON:', json)
             const logs = Array.isArray(json?.logs) ? json.logs : []
+            console.log('✅ Parsed logs:', logs)
             setLogsByEmail(prev => ({ ...prev, [idKey]: logs }))
           })
-          .catch(() => {
+          .catch((err) => {
+            console.error('❌ Error fetching logs:', err)
             setLogsByEmail(prev => ({ ...prev, [idKey]: [] }))
           })
+      } else {
+        console.log('📋 Logs already cached for email ID:', idKey, logsByEmail[idKey])
       }
     }
   }
 
   const orderedSteps = [
-    'gemini_analysis',
     'domain_check',
     'company_verification',
+    'gemini_analysis',
     'final_decision'
   ] as const
 
   const stepLabel: Record<string, string> = {
-    gemini_analysis: 'AI Analysis',
     domain_check: 'Domain Check',
     company_verification: 'Company Verification',
+    gemini_analysis: 'AI Analysis',
     final_decision: 'Final Decision'
   }
 
   function buildStepPanels(emailId: number | string) {
     const idKey = String(emailId)
     const logs = logsByEmail[idKey] || []
+    console.log('🏗️ Building step panels for email:', idKey)
+    console.log('📦 All logs for this email:', logs)
+    console.log('📚 All logsByEmail state:', logsByEmail)
+    
     const byStep: Record<string, any> = {}
     for (const log of logs) {
       const key = String(log.step || '').toLowerCase()
       if (!byStep[key]) byStep[key] = log
+      console.log(`  📌 Mapping step "${key}" to log:`, log)
     }
+    console.log('🗂️ Logs organized by step:', byStep)
+    
     const panels = orderedSteps.map(step => byStep[step] || null)
+    console.log('📋 Final panels array:', panels)
     return panels
   }
 
@@ -258,7 +339,7 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
                     <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Preview</span>
                     <div className="mt-2 p-3 bg-gray-100 rounded-lg">
                       <p className="text-sm text-gray-800 leading-relaxed line-clamp-3">
-                        {email.body}
+                        {cleanEmailBody(email.body)}
                       </p>
                     </div>
                   </div>
@@ -268,18 +349,43 @@ export default function EmailList({ emails, onEmailClick }: EmailListProps) {
                     <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Analysis Steps</span>
                     <div className="mt-2 flex divide-x divide-gray-200 rounded-lg border border-gray-200 overflow-hidden min-h-[128px] items-stretch w-full">
                       {buildStepPanels(email.id).map((log, idx) => (
-                        <div key={idx} className="relative flex-1 p-3 flex flex-col items-center justify-center text-center">
+                        <div key={idx} className="relative flex-1 p-3 flex flex-col text-center">
                           {/* Internal centered gradient line, not touching edges */}
                           <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 -translate-x-1/2">
                             <div className="w-px h-full bg-gradient-to-b from-transparent via-gray-300 to-transparent" />
                           </div>
 
-                          <div className="text-[11px] font-semibold text-gray-700 mb-1">
+                          <div className="text-[11px] font-semibold text-gray-700 mb-2">
                             {stepLabel[orderedSteps[idx]]}
                           </div>
                           {log ? (
-                            <div className="text-xs text-gray-700 leading-snug whitespace-pre-wrap break-words">
-                              {String(log.reasoning || '').slice(0, 280)}
+                            <div className="flex flex-col gap-2 text-left">
+                              {log.decision && (
+                                <div className="flex items-center gap-1.5 justify-center">
+                                  <span className="text-[10px] font-semibold text-gray-500 uppercase">Decision:</span>
+                                  <Badge 
+                                    variant="outline"
+                                    className={`${
+                                      log.decision.toLowerCase() === 'safe' ? 'bg-green-100 text-green-800 border-green-300' :
+                                      log.decision.toLowerCase() === 'fraudulent' ? 'bg-red-100 text-red-800 border-red-300' :
+                                      'bg-amber-100 text-amber-800 border-amber-300'
+                                    } text-[10px] px-1.5 py-0 font-semibold`}
+                                  >
+                                    {log.decision}
+                                  </Badge>
+                                </div>
+                              )}
+                              {log.confidence !== undefined && log.confidence !== null && (
+                                <div className="text-[10px] text-gray-600 text-center">
+                                  <span className="font-semibold">Confidence:</span> {Math.round(log.confidence * 100)}%
+                                </div>
+                              )}
+                              {log.reasoning && (
+                                <div className="text-[11px] text-gray-700 leading-snug">
+                                  {String(log.reasoning).slice(0, 200)}
+                                  {String(log.reasoning).length > 200 && '...'}
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="text-xs text-gray-400">—</div>

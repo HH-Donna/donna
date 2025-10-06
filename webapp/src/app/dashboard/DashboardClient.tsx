@@ -171,7 +171,8 @@ export default function DashboardClient({ user, initialEmails, companies, needsO
                 <div>
                   <p className="text-xs font-medium text-gray-600">Total Money Saved</p>
                   <p className="text-2xl font-bold text-gray-900 mt-1">
-                    £{metrics.totalMoneySaved.toFixed(2)}
+                    ${metrics.totalMoneySaved.toFixed(2)}
+                    {/* $2134 */}
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">From blocked fraudulent emails</p>
                 </div>

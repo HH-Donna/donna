@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Shield, LogOut } from 'lucide-react'
+import { useState } from 'react'
 
 interface DashboardNavProps {
   user: {
@@ -13,6 +14,14 @@ interface DashboardNavProps {
 }
 
 export default function DashboardNav({ user, onLogout }: DashboardNavProps) {
+  const [imageError, setImageError] = useState(false)
+  
+  console.log('👤 User profile data:', { 
+    profileUrl: user.profileUrl, 
+    hasProfileUrl: !!user.profileUrl,
+    initials: user.initials 
+  })
+  
   return (
     <nav className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
       <div className="container mx-auto">
@@ -31,11 +40,16 @@ export default function DashboardNav({ user, onLogout }: DashboardNavProps) {
           {/* User Profile and Logout */}
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3">
-              {user.profileUrl ? (
+              {user.profileUrl && !imageError ? (
                 <img 
                   src={user.profileUrl} 
                   alt={`${user.name} profile`} 
                   className="h-10 w-10 rounded-full border-2 border-gray-200 object-cover"
+                  onError={() => {
+                    console.log('❌ Failed to load profile image:', user.profileUrl)
+                    setImageError(true)
+                  }}
+                  onLoad={() => console.log('✅ Profile image loaded successfully')}
                 />
               ) : (
                 <div className="h-10 w-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-white font-semibold shadow-sm">

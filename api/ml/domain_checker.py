@@ -755,6 +755,7 @@ async def verify_company_online(
         if online_phone and extraction_confidence >= 0.5:
             print(f"\n📞 Phone number found for {company_name}: {online_phone}")
             print(f"   Confidence: {extraction_confidence:.2f} - Initiating ElevenLabs agent call...")
+            print(f"   🔧 TESTING MODE: Will override with hardcoded number +13473580012")
             
             try:
                 # Import ElevenLabs agent service

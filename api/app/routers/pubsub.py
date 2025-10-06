@@ -194,6 +194,7 @@ async def process_new_email_background(user_id: str, history_id: str, email_addr
                     
                     email_record = {
                         'user_id': user_id,
+                        'gmail_message_id': message_id,  # Store Gmail message ID for linking with fraud logs
                         'sender': headers.get('From', ''),
                         'subject': headers.get('Subject', ''),
                         'body': combined_body,
@@ -353,6 +354,7 @@ async def process_new_email_background(user_id: str, history_id: str, email_addr
                 
                 email_record = {
                     'user_id': user_id,
+                    'gmail_message_id': message_id,  # Store Gmail message ID for linking with fraud logs
                     # company_id will be set if company was matched
                     'company_id': company_verification.get('company_match', {}).get('id') if company_verification.get('company_match') else None,
                     'sender': headers.get('From', ''),
@@ -868,6 +870,7 @@ async def process_test_email_background(user_id: str, user_email: str, mock_mess
         # Save to database
         email_record = {
             'user_id': user_id,
+            'gmail_message_id': mock_message['id'],  # Store Gmail message ID for linking with fraud logs
             'company_id': company_verification.get('company_match', {}).get('id') if company_verification.get('company_match') else None,
             'sender': headers.get('From', ''),
             'subject': headers.get('Subject', ''),
